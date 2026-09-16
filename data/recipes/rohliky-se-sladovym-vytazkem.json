@@ -1,0 +1,34 @@
+{
+  "title": "Rohlíky se sladovým výtažkem",
+  "summary": "Klasické pečivo s vysokou hydratací a sladovým výtažkem pro dosažení profesionální textury střídky a křupavé kůrky.",
+  "ingredients": [
+    "[Těsto]",
+    "500 g pšeničné mouky hladké",
+    "270 g vlažné vody",
+    "6 g diastatického sladového výtažku",
+    "12 g čerstvého droždí",
+    "10 g jemné soli",
+    "30 g vepřového sádla"
+  ],
+  "instructions": [
+    "[Příprava těsta a kynutí]",
+    "Droždí rozmíchejte v části vlažné tekutiny a nechte 15 minut aktivovat v teplém prostředí pro vytvoření startovací kultury.",
+    "Mouku smíchejte se zbylou tekutinou a sladovým výtažkem. Nechte směs 20 minut autolýzovat pro lepší hydrataci lepkových vláken.",
+    "Přidejte aktivovaný kvásek a hněťte v robotu 8 minut při nízké rychlosti, dokud není těsto kompaktní.",
+    "[Motání rohlíků a pečení]",
+    "Přidejte sůl a zapracujte sádlo. Pokračujte v hnětení dalších 7 minut, dokud těsto není elastické a nelepí se na stěny mísy.",
+    "Těsto nechte 60 minut kynout v uzavřené nádobě, přičemž po 30 minutách proveďte překlad pro zpevnění struktury.",
+    "Vykynuté těsto rozdělte na stejné díly a vytvarujte bochánky, které nechte 10 minut odpočinout.",
+    "Těsto vyválejte do trojúhelníkového tvaru a pevně srolujte do finální podoby rohlíku.",
+    "Nechte rohlíky na plechu dokynout po dobu 30 minut a následně pečte v zapařené troubě."
+  ],
+  "applianceTips": "Pro dosažení ideální krusty předehřejte troubu na maximum a při vložení plechu využijte parní ráz nebo vlijte 50 ml vroucí vody na spodní rozpálený plech.",
+  "expertJustification": "Zavedení autolýzy a dvoufázového hnětení výrazně zlepšuje tažnost těsta. Sladový výtažek podporuje enzymatickou aktivitu, která zajišťuje lepší karamelizaci kůrky bez nutnosti přidávání cukru.",
+  "applianceType": "Planetární robot a horkovzdušná trouba s funkcí páry",
+  "cookingTime": "150 min",
+  "difficulty": "Střední",
+  "category": "Pečivo",
+  "id": "gen-1781775974569",
+  "updatedAt": "2026-07-13T10:02:29.895Z",
+  "estimatedCookingTime": "18 min"
+}

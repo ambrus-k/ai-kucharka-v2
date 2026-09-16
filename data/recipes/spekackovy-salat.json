@@ -1,0 +1,38 @@
+{
+  "title": "Špekáčkový salát",
+  "summary": "Tradiční český salát s vylepšenou texturou díky řízenému marinování cibule a harmonizaci chutí v chladu.",
+  "ingredients": [
+    "[Základ salátu]",
+    "600 g kvalitních špekáčků",
+    "200 g cibule",
+    "200 g sterilovaných okurek",
+    "[Zálivka a dochucení]",
+    "150 g domácí majonézy",
+    "30 g plnotučné hořčice",
+    "20 ml worcesterové omáčky",
+    "30 g kečupu",
+    "15 ml vinného octa",
+    "10 g cukru krupice",
+    "20 ml slunečnicového oleje",
+    "1 g černého pepře"
+  ],
+  "instructions": [
+    "[Příprava uzeniny a zeleniny]",
+    "Špekáčky zbavte střívka, podélně rozkrojte a nakrájejte na tenké půlměsíčky.",
+    "Cibuli a okurky nakrájejte ručně na drobné kostičky stejné velikosti, aby byla zachována křupavost a salát nepustil příliš mnoho tekutiny.",
+    "[Příprava emulze a namíchání salátu]",
+    "V míse vyšlehejte olej, hořčici, worcester, kečup, ocet, cukr a pepř, dokud nevznikne hladká emulze.",
+    "Do připravené emulze vložte nakrájenou cibuli a nechte ji krátce marinovat pro zjemnění její štiplavosti.",
+    "Následně přidejte nakrájené špekáčky a okurky a vše důkladně promíchejte.",
+    "Nakonec do směsi opatrně vmíchejte majonézu a nechte salát v chladu odpočívat, aby se chutě správně propojily."
+  ],
+  "applianceTips": "Namísto robotu doporučuji použití ostrého šéfkuchařského nože, který zajistí čisté řezy surovin bez zbytečného drcení vláken.",
+  "expertJustification": "Změna techniky krájení z robotu na ruční zajišťuje integritu surovin, což zabraňuje uvolňování přebytečné vody a zachovává požadovanou viskozitu výsledného salátu.",
+  "applianceType": "Kuchařský nůž a nerezová mísa",
+  "cookingTime": "280 min",
+  "difficulty": "Snadné",
+  "category": "Ostatní",
+  "id": "gen-1781777658404",
+  "estimatedCookingTime": "20 min",
+  "updatedAt": "2026-07-14T06:19:14.346Z"
+}

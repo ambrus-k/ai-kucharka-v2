@@ -1,0 +1,31 @@
+{
+  "title": "Pizza se sladěnkou",
+  "summary": "Profesionální receptura pro autentickou pizzu s využitím sladěnky pro optimální fermentaci a dokonalou karamelizaci kůrky.",
+  "ingredients": [
+    "[Těsto na pizzu]",
+    "500 g pšeničné mouky typu 00",
+    "325 g vody o teplotě 24 °C",
+    "15 g čerstvého droždí",
+    "7 g ječné sladěnky",
+    "15 g extra panenského olivového oleje",
+    "12 g mořské soli"
+  ],
+  "instructions": [
+    "[Mísení a kynutí těsta]",
+    "Ve vodě rozmíchejte droždí se sladěnkou. Tuto směs vlijte k prosáté mouce a začněte hníst na nízký stupeň.",
+    "Po zapracování všech tekutin přidejte sůl a olej. Hněťte při střední rychlosti, dokud není těsto hladké, lesklé a nejeví známky silné lepkové sítě.",
+    "Těsto přikryjte a nechte 60 minut odpočívat při pokojové teplotě, následně jej přeložte (technika stretch and fold) a nechte dalších 60 minut kynout.",
+    "[Tvarování a pečení]",
+    "Zpracované těsto rozdělte na bochníky, vložte do uzavřené nádoby a nechte zrát 12 hodin v chladu, což zajistí komplexní chuťový profil.",
+    "Před pečením nechte bochníky 120 minut temperovat při pokojové teplotě, poté vytvarujte pizzy, doplňte ingrediencemi a pečte při maximální možné teplotě do zlatova."
+  ],
+  "applianceTips": "Pro dosažení výsledků jako z profesionální pece použijte pizza kámen nebo ocelovou desku; před pečením nechte spotřebič nahřát na maximum alespoň 60 minut.",
+  "expertJustification": "Dlouhá fermentace v chladu rozkládá složité sacharidy, čímž zlepšuje stravitelnost a texturu střídky, zatímco sladěnka poskytuje přirozenou výživu kvasinkám a posiluje Maillardovu reakci při vysokých teplotách.",
+  "applianceType": "Trouba s funkcí horkovzduchu a pizza kamenem",
+  "cookingTime": "960 min",
+  "difficulty": "Střední",
+  "category": "Slaná jídla bez masa",
+  "id": "gen-1781777082731",
+  "estimatedCookingTime": "10 min",
+  "updatedAt": "2026-07-14T06:14:08.404Z"
+}

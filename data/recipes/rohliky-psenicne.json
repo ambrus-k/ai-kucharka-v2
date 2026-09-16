@@ -1,0 +1,36 @@
+{
+  "title": "Rohlíky pšeničné",
+  "summary": "Tradiční pšeničné rohlíky připravené metodou autolýzy a řízeného kynutí pro dosažení optimální struktury střídky a křupavé kůrky.",
+  "ingredients": [
+    "[Těsto]",
+    "500 g hladké pšeničné mouky",
+    "270 g vody",
+    "5 g krupicového cukru",
+    "12 g čerstvého droždí",
+    "10 g jemné soli",
+    "30 g vepřového sádla"
+  ],
+  "instructions": [
+    "[Kvásek a hnětení těsta]",
+    "Ve vlažné vodě rozmíchejte cukr a droždí a nechte 15 minut aktivovat.",
+    "Mouku smíchejte se zbytkem vody a nechte 30 minut proběhnout proces autolýzy pro lepší rozvoj lepku.",
+    "Ke směsi přidejte aktivovaný kvásek a hněťte 5 minut na nízké otáčky.",
+    "[Kynutí, motání a pečení]",
+    "Přidejte sůl a změklé sádlo a pokračujte v hnětení dalších 8 minut, dokud není těsto hladké a elastické.",
+    "Těsto nechte 60 minut kynout v teple, přičemž po 30 minutách proveďte překlad pro zpevnění struktury.",
+    "Vykynuté těsto rozdělte na stejné díly a vytvarujte bochánky, které nechte 10 minut odpočívat pod utěrkou.",
+    "Bochánky vyválejte do trojúhelníků a pevně srolujte do tvaru rohlíků.",
+    "Rohlíky nechte finálně kynout na plechu 45 minut do zdvojnásobení objemu.",
+    "Pečte 15 minut v troubě vyhřáté na 230 °C se zapařením pro vytvoření lesklé kůrky.",
+    "Po vyjmutí nechte vychladnout na mřížce 20 minut."
+  ],
+  "applianceTips": "Při pečení využijte program s vysokou vlhkostí nebo vlijte 100 ml vroucí vody na spodní plech pro dosažení profesionálního lesku kůrky.",
+  "expertJustification": "Zkrácení hnětení a zavedení cílené autolýzy stabilizuje lepkovou síť, což zabraňuje degradaci těsta a zajišťuje rovnoměrné kynutí bez použití aditiv.",
+  "applianceType": "Parní trouba",
+  "cookingTime": "183 min",
+  "difficulty": "Střední",
+  "category": "Pečivo",
+  "id": "gen-1781436210192",
+  "updatedAt": "2026-07-13T10:01:13.915Z",
+  "estimatedCookingTime": "15 min"
+}

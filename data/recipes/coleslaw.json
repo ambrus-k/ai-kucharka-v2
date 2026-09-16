@@ -1,0 +1,36 @@
+{
+  "title": "Coleslaw",
+  "summary": "Precizně technicky zpracovaný zelný salát, kde osmóza a následná stabilizace textury vytvářejí ideální křupavost bez nežádoucího vodnatění.",
+  "ingredients": [
+    "[Zeleninový základ]",
+    "500 g hlávkového zelí",
+    "100 g mrkve",
+    "50 g celeru",
+    "50 g cibule",
+    "[Zálivka a dochucení]",
+    "100 g majonézy",
+    "50 g zakysané smetany",
+    "15 ml jablečného octa",
+    "15 g cukru krupice",
+    "5 g soli",
+    "2 g mletého černého pepře"
+  ],
+  "instructions": [
+    "[Příprava a osmóza zeleniny]",
+    "Zelí nakrouhejte na tenké nudličky, v míse ho promíchejte se solí a nechte 20 min odpočívat pro zahájení procesu osmózy.",
+    "Během odpočinku zelí nastrouhejte mrkev a celer, šalotku nasekejte nadrobno a připravte si dresink smícháním octa, hořčice, cukru a pepře v homogenní tekutinu.",
+    "Po uplynutí 20 min zelí důkladně promačkejte a v utěrce nebo odstředivce vymačkejte veškerou uvolněnou tekutinu, aby salát zůstal křupavý.",
+    "[Příprava dresinku a chlazení]",
+    "Do připravené tekuté směsi vmíchejte majonézu a smetanu, čímž vznikne stabilní emulze, kterou následně důkladně zapracujte do zeleninové směsi.",
+    "Salát dejte odležet do chladničky na 120 min, aby došlo k hloubkové harmonizaci chutí a stabilizaci dresinku na surovinách."
+  ],
+  "applianceTips": "K dosažení konzistentní struktury použijte food processor s vlnitým krouhacím diskem. Rychlou filtraci buněčné vody zajistí odstředivka na salát.",
+  "expertJustification": "Zkrácení doby osmózy na 20 minut zabrání nadměrnému zničení buněčné struktury, zatímco 120 minut chlazení je optimální doba pro infiltraci dresinku do pórů zeleniny bez degradace čerstvosti.",
+  "applianceType": "Kuchyňský robot s krouhacím diskem",
+  "cookingTime": "140 min",
+  "difficulty": "Snadné",
+  "category": "Ostatní",
+  "id": "gen-1782536706330",
+  "estimatedCookingTime": "0 min",
+  "updatedAt": "2026-07-13T09:12:40.064Z"
+}

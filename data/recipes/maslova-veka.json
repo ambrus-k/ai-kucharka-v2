@@ -1,0 +1,34 @@
+{
+  "title": "Máslová veka",
+  "summary": "Tradiční nadýchané pečivo s máslem, připravené metodou důkladného hnětení a řízeného kynutí pro optimální texturu střídky.",
+  "ingredients": [
+    "[Těsto]",
+    "500 g hladké pšeničné mouky",
+    "285 g vlažného plnotučného mléka",
+    "60 g změklého másla",
+    "11 g soli",
+    "6 g instantního droždí"
+  ],
+  "instructions": [
+    "[Příprava a hnětení těsta]",
+    "Smíchejte droždí s vlažným mlékem a nechte 15 minut aktivovat v teplém prostředí.",
+    "Do mísy prosejte mouku, přidejte sůl, aktivovaný kvásek a změklé máslo.",
+    "Hněťte těsto pomocí kuchyňského robota 12 minut, dokud není hladké, elastické a nelepí se na stěny nádoby.",
+    "[Tvarování veky a pečení]",
+    "Nechte těsto kynout v uzavřené nádobě 60 minut, dokud nezdvojnásobí svůj objem.",
+    "Vykynuté těsto rozdělte na dva stejné díly a nechte 10 minut odpočinout.",
+    "Každý díl rozválejte a srolujte do pevného válečku, přičemž sváry důkladně utěsněte.",
+    "Veky přeneste na plech a nechte kynout dalších 45 minut pod čistou utěrkou.",
+    "Povrch jemně potřete vodou či vejcem a pečte v předehřáté troubě 25 minut při teplotě 190 °C.",
+    "Po vyjmutí z trouby nechte pečivo chladnout na mřížce po dobu 30 minut."
+  ],
+  "applianceTips": "Pro dosažení profesionální krusty použijte v první fázi pečení vstřikování páry nebo vložte na dno trouby plech s horkou vodou na prvních 5 minut.",
+  "expertJustification": "Optimalizace doby hnětení na 12 minut zajišťuje správnou vývojovou fázi lepkové sítě, zatímco prodloužená fermentace v závěrečné fázi kynutí zaručuje lehkou a nadýchanou strukturu střídky bez defektů.",
+  "applianceType": "Hnětací robot a pečicí trouba",
+  "cookingTime": "155 min",
+  "difficulty": "Střední",
+  "category": "Pečivo",
+  "id": "gen-1781777771572",
+  "estimatedCookingTime": "25 min",
+  "updatedAt": "2026-07-13T09:53:41.877Z"
+}

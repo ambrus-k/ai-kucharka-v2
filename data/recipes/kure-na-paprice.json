@@ -1,0 +1,42 @@
+{
+  "title": "Kuře na paprice",
+  "summary": "Klasické kuře na paprice připravené metodou řízeného dušení pro dosažení maximální šťavnatosti a dokonalé emulze.",
+  "ingredients": [
+    "[Maso a základ]",
+    "1 kg kuřecích stehen nebo prsou",
+    "200 g cibule",
+    "50 g vepřového sádla nebo másla",
+    "25 g mleté sladké papriky",
+    "750 ml kuřecího vývaru",
+    "[Omáčka a zjemnění]",
+    "200 g zakysané smetany (18%)",
+    "15 g hladké mouky",
+    "30 g studeného másla",
+    "5 g soli",
+    "2 g čerstvě mletého černého pepře"
+  ],
+  "instructions": [
+    "[Opečení masa a cibulový základ]",
+    "Maso očistěte, osušte a z obou stran okořeňte solí a pepřem.",
+    "V hrnci rozpalte přepuštěné máslo a maso orestujte ze všech stran 8 minut do zlatavé barvy, poté vyjměte.",
+    "Do výpeku přidejte najemno nakrájenou cibuli a restujte 10 minut za občasného míchání, dokud není sklovitá a zlatavá.",
+    "Hrnec sejměte z tepelného zdroje, vmíchejte papriku a nechte 30 sekund rozvonět.",
+    "[Pomalé dušení]",
+    "Zalijte vývarem, vraťte maso do hrnce a duste pod poklicí při nízké teplotě 60 minut.",
+    "[Dokončení a zjemnění omáčky]",
+    "Maso vyjměte a v misce prošlehejte smetanu ke šlehání s moukou na hladkou směs.",
+    "Smetanovou směs vlijte do hrnce a provařte 15 minut za občasného míchání.",
+    "Omáčku stáhněte z ohně, vmíchejte zakysanou smetanu a pomocí ponorného mixéru rozmixujte do hladké textury.",
+    "Nakonec do omáčky zašlehejte kostky studeného másla pro dosažení lesku a jemnosti.",
+    "Vraťte maso do omáčky a prohřívejte 5 minut před podáváním."
+  ],
+  "applianceTips": "V multifunkčním hrnci využijte funkci Sauté pro restování masa a cibule, následně přepněte na režim Slow Cook pro dušení. Závěrečnou emulgaci máslem provádějte vždy mimo přímý zdroj tepla pro zachování stability omáčky.",
+  "expertJustification": "Postup byl optimalizován z hlediska tepelné kinetiky. Prodloužení doby restování cibule zajistí hlubší chuťový základ (Maillardova reakce), zatímco řízené provaření smetany s moukou zaručuje správnou gelovatění škrobů bez rizika připálení.",
+  "applianceType": "Multifunkční hrnec",
+  "cookingTime": "120 min",
+  "difficulty": "Střední",
+  "category": "Maso",
+  "id": "gen-1783887414122",
+  "updatedAt": "2026-07-13T09:16:03.437Z",
+  "estimatedCookingTime": "113 min"
+}

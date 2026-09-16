@@ -1,0 +1,41 @@
+{
+  "title": "Sekaná",
+  "summary": "Klasická domácí sekaná z hovězího a vepřového masa, optimalizovaná pro maximální šťavnatost pomocí emulgace bílkovin za studena a dvoufázového pečení.",
+  "ingredients": [
+    "[Masová směs]",
+    "500 g mletého vepřového bůčku",
+    "500 g mletého hovězího krku",
+    "2 starší bílé rohlíky",
+    "150 ml plnotučného mléka",
+    "2 střední cibule",
+    "20 g vepřového sádla",
+    "4 stroužky česneku",
+    "2 vejce",
+    "15 g soli",
+    "3 g mletého černého pepře",
+    "3 g drceného kmínu",
+    "4 g sušené majoránky",
+    "50 ml ledové vody"
+  ],
+  "instructions": [
+    "[Příprava masové směsi]",
+    "Smíchejte mleté maso se solí a kořením. Zakryjte nádobu a nechte směs odpočívat v chladu po dobu 30 min až 2 h, čímž zahájíte proces solné filtrace a zvýšíte vaznost masné emulze.",
+    "Bílé rohlíky nakrájejte na drobné kostičky, vložte do mísy, zalijte plnotučným mlékem a nechte 10 min zcela nasáknout.",
+    "Na pánvi rozpusťte vepřové sádlo a nechte na něm po dobu 5 min zesklovatět nadrobno nakrájenou cibuli. Těsně před koncem přidejte utřený česnek, nechte jej 1 min rozvonět a směs ihned stáhněte, aby zchladla pod 15 °C.",
+    "[Tvarování šišky a pečení]",
+    "K namočenému pečivu přidejte odpočinuté maso, vejce, zchladlou cibuli s česnekem a kořením. Sušenou majoránku před vhozením promněte v dlaních pro uvolnění silic.",
+    "Směs začněte intenzivně hnětat. Během hnětení trvajícího 10 min až 15 min postupně přilévejte ledovou vodu, přičemž teplota masa nesmí překročit 4 °C. Hněťte, dokud se neobjeví jemná bílkovinná vlákna značící uvolnění myosinu.",
+    "Masové dílo několikrát silou vyzdvihněte a uhoďte s ním o dno mísy po dobu 2 min, čímž spolehlivě vytěsníte vzduchové kapsy.",
+    "Rukama namočenýma ve studené vodě vytvarujte pevnou šišku bez jakýchkoliv povrchových prasklin, položte ji do sádlem vymazaného pekáče a nechte v chladničce stabilizovat dalších 30 min.",
+    "Pečte v předehřáté troubě nejprve při teplotě 120 °C po dobu 60 min, přičemž povrch pravidelně polévejte horkým výpekem. Poté zvyšte teplotu na 180 °C a dopékejte 20 min až 30 min pro docílení zlatavé kůrky, dokud vnitřní teplota v jádru nedosáhne 72 °C. Před krájením nechte sekanou 15 min odpočívat."
+  ],
+  "applianceTips": "Při použití kombinované parní trouby pečte v režimu s 25 % páry při teplotě 120 °C po dobu 60 min, následně přepněte na horkovzduch bez páry při 180 °C na 20 min pro vytvoření dokonalé textury kůrky bez rizika prasknutí.",
+  "expertJustification": "Dodržení nízké teploty suroviny pod 4 °C během hnětení s přídavkem ledové vody je klíčové pro extrakci svalové bílkoviny myosinu, která funguje jako přírodní pojivo. Dvoufázový teplotní režim pečení (120 °C a následně 180 °C) zamezuje teplotnímu šoku, udržuje buněčné stěny neporušené a zachovává maximum šťávy uvnitř masové matrice.",
+  "applianceType": "Kombinovaná parní trouba",
+  "cookingTime": "175 min",
+  "difficulty": "Střední",
+  "category": "Maso",
+  "id": "gen-1783884048202",
+  "updatedAt": "2026-07-13T11:37:02.477Z",
+  "estimatedCookingTime": "90 min"
+}

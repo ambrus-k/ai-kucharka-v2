@@ -1,0 +1,40 @@
+{
+  "title": "Buřtguláš",
+  "summary": "Poctivý buřtguláš zahuštěný přímou jíškou, zjemněný smetanou a provoněný majoránkou. Tradiční česká klasika bez umělých dochucovadel s dokonale provařeným základem.",
+  "ingredients": [
+    "[Uzenina a zelenina]",
+    "500 g kvalitních špekáčků nebo buřtů",
+    "800 g brambor (varný typ B)",
+    "250 g cibule (nadrobno)",
+    "3 stroužky česneku",
+    "[Základ a koření]",
+    "40 g vepřového sádla",
+    "20 g sladké mleté papriky",
+    "5 g pálivé mleté papriky",
+    "3 g drceného kmínu",
+    "3 g sušené majoránky",
+    "800 ml hovězího vývaru nebo vody",
+    "30 g hladké mouky",
+    "Sůl a čerstvě mletý pepř"
+  ],
+  "instructions": [
+    "[Příprava uzeniny a zeleniny]",
+    "Špekáčky oloupejte a nakrájejte na půlkolečka, brambory na stejně velké kostky a cibuli nadrobno. Česnek utřete se špetkou soli.",
+    "[Cibulový základ a jíška]",
+    "V těžkém litinovém hrnci rozpusťte vepřové sádlo, přidejte nakrájené špekáčky a opékejte je na středním plameni přibližně pět až sedm minut, dokud nepustí tuk a na povrchu jemně nezkaramelizují.",
+    "K opečené uzenině přidejte cibuli. Snižte teplotu a za občasného míchání ji pomalu restujte deset až patnáct minut do sytě zlatavé barvy. V závěru přidejte drcený kmín a utřený česnek a nechte je minutu rozvonět.",
+    "Celou směs zaprašte hladkou moukou a za stálého míchání opékejte dvě minuty, aby se potlačila syrová chuť škrobu. Hrnec následně odstavte z plamene, vmíchejte sladkou i pálivou papriku a nechte ji v horkém tuku zhruba třicet sekund zpěnit, aby se uvolnilo barvivo a aroma bez rizika zhořknutí.",
+    "[Vaření a zahuštění]",
+    "Základ okamžitě zalijte studeným domácím hovězím vývarem a metličkou důkladně odškrábněte všechny karamelizované přípečky ode dna. Vraťte hrnec na plamen, přiveďte k varu, vložte nakrájené brambory a pod pokličkou nechte mírně bublat dvacet až dvacet pět minut, dokud brambory nezměknou a omáčka se přirozeně nezahustí.",
+    "Do hotového základu vlijte smetanu ke šlehání a nechte dvě minuty mírně provřít pro dokonalé propojení chutí a emulgaci. Hrnec odstavte z tepla, vmíchejte v dlaních rozemnutou sušenou majoránku, podle chuti dolaďte solí a čerstvě mletým černým pepřem a nechte před podáváním pět minut odpočívat."
+  ],
+  "applianceTips": "Litinový hrnec s těžkým dnem je ideální pro rovnoměrnou distribuci tepla a dokonalou Maillardovu reakci při opékání uzeniny a cibule. Pro pomalé vaření lze po orestování základu využít pomalý hrnec nastavený na režim Low po dobu čtyř hodin, čímž docílíte mimořádně hluboké chuti.",
+  "expertJustification": "Základem úspěchu je pomalé restování cibule na sádle, čímž uvolníme přírodní cukry a získáme hlubokou chuť bez nutnosti použití umělých barviv. Opékáním mouky (dextrinizací) přímo na tuku eliminujeme syrovou škrobovou chuť a stabilizujeme omáčku. Vložení papriky mimo přímý žár zabrání jejímu spálení a zhořknutí, zatímco použití studeného vývaru na horkou jíšku zamezuje tvorbě nežádoucích hrudek.",
+  "applianceType": "Litinový hrnec",
+  "cookingTime": "60 min",
+  "difficulty": "Snadné",
+  "category": "Polévky",
+  "id": "gen-1783884136320",
+  "updatedAt": "2026-07-13T08:51:13.483Z",
+  "estimatedCookingTime": "45 min"
+}

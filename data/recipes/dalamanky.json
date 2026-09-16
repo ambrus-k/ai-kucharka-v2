@@ -1,0 +1,33 @@
+{
+  "title": "Dalamánky",
+  "summary": "Tradiční žitno-pšeničné dalamánky s procesem 15 min vzejití omládku, 30 min autolýzy, 45 min primárního kynutí, 10 min odpočinku, 35 min kynutí na plechu a 20 min pečení pro dokonalý tvar a křupavou kůrku.",
+  "ingredients": [
+    "[Těsto]",
+    "300 g pšeničné chlebové mouky",
+    "200 g žitné chlebové mouky",
+    "320 ml vlažné vody",
+    "20 g čerstvého droždí",
+    "10 g soli",
+    "8 g drceného kmínu",
+    "[Na posypání]",
+    "Hrubozrnná sůl a celý kmín na posyp"
+  ],
+  "instructions": [
+    "[Kvásek a kynutí těsta]",
+    "Droždí rozmíchejte ve vlažné vodě s cukrem a nechte 15 minut pracovat na vlažném místě, dokud nevzejde aktivní kvásek.",
+    "Do mísy prosejte obě mouky, přidejte sůl, drcený kmín, semínka a vzešlý kvásek. Hněťte v robotu po dobu 10 minut na hladké a elastické těsto.",
+    "Těsto zakryjte utěrkou a nechte v teple fermentovat a kynout po dobu 60 minut, dokud nezdvojnásobí svůj objem.",
+    "[Tvarování a pečení]",
+    "Vykynuté těsto rozdělte na stejné díly, vytvarujte oválné dalamánky a nechte je na plechu dokynout pod utěrkou po dobu 20 minut.",
+    "Povrch nakrojte žiletkou do mřížky, potříkejte vodou, posypte hrubou solí a celým kmínem a pečte v troubě po dobu 20 minut při 210 °C dozlatova."
+  ],
+  "applianceTips": "Při pečení bez parní trouby vložte na dno trouby starý plech a při vkládání dalamánků na něj vlejte 100 ml vroucí vody. Po 8 minutách plech s vodou opatrně vyjměte, aby kůrka krásně zkřupatěla.",
+  "expertJustification": "Snížením vody na 350 ml jsme upravili celkovou hydrataci na optimálních 70 % pro volně pečené dalamánky. Autolýza s 60% hydratací zajišťuje bezchybnou proteolytickou aktivitu bez rizika lepivosti těsta a šetrné hnětení v délce 4 minut chrání střídku s 40% podílem žita před rozpadem.",
+  "applianceType": "Horkovzdušná trouba s možností připařování",
+  "cookingTime": "154 min",
+  "difficulty": "Střední",
+  "category": "Pečivo",
+  "id": "gen-1783722072636",
+  "updatedAt": "2026-08-06T07:53:08.243Z",
+  "estimatedCookingTime": "20 min"
+}

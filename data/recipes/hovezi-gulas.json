@@ -1,0 +1,40 @@
+{
+  "title": "Hovězí guláš",
+  "summary": "Klasický hovězí guláš z kližky zahuštěný chlebovou střídkou, s bohatou chutí pomalu karamelizované cibule a tradičního koření.",
+  "ingredients": [
+    "[Maso a cibule]",
+    "800 g hovězí kližky",
+    "800 g cibule (nadrobno)",
+    "[Smažení a koření]",
+    "80 g vepřového sádla",
+    "30 g sladké mleté papriky",
+    "5 g drceného kmínu",
+    "4 stroužky česneku",
+    "3 g sušené majoránky",
+    "800 ml hovězího vývaru",
+    "Sůl a černý pepř",
+    "[Zahuštění]",
+    "1 střídka staršího chleba na zahuštění"
+  ],
+  "instructions": [
+    "[Cibulový a paprikový základ]",
+    "V těžkém hrnci rozpusťte sádlo, přidejte jemně nakrájenou cibuli a restujte ji na mírném ohni za stálého míchání do tmavě hnědé barvy.",
+    "K osmažené cibuli přidejte celý kmín, polovinu prolisovaného česneku a rajský protlak. Směs krátce orestujte, dokud protlak nezvoní a neztratí kyselost.",
+    "Hrnec na chvíli odstavte z plamene a vmíchejte sladkou i pálivou mletou papriku. Nechte ji v teplém tuku rozpustit, aby uvolnila barvu a vůni.",
+    "[Restování masa a dušení]",
+    "Vraťte hrnec na sporák, přidejte nakrájené hovězí maso, osolte, opepřete a zprudka opékejte, dokud se maso nezatáhne a nevydusí se vlastní šťáva.",
+    "Zalijte směs horkým hovězím vývarem, hrnec přikryjte poklicí a duste na mírném ohni do poloměkka.",
+    "[Zahuštění chlebem a dochucení]",
+    "Přisypte nastrouhanou chlebovou střídku, promíchejte a nechte bez poklice zvolna vařit, dokud maso zcela nezměkne a omáčka se přirozeně nezahustí.",
+    "Na závěr přidejte zbývající prolisovaný česnek a v dlaních promnutou sušenou majoránku. Krátce provařte, stáhněte z ohně a nechte chvíli odležet."
+  ],
+  "applianceTips": "Pro dokonalou distribuci tepla použijte těžký litinový hrnec. Pokud vaříte na indukci, udržujte stabilní nízký výkon pro pozvolné tažení masa, které zabrání jeho vysušení.",
+  "expertJustification": "Postup byl upraven podle tradičních kulinářských metod. Vynechali jsme netradiční marinování v syrovátce a nahradili ho klasickým základem z pomalu karamelizované cibule. Množství surovin bylo standardizováno pro běžnou domácí kuchyni a časy odpovídají přirozenému změknutí hovězí kližky bez zbytečného převaření.",
+  "applianceType": "Litinový hrnec",
+  "cookingTime": "150 min",
+  "difficulty": "Střední",
+  "category": "Maso",
+  "id": "gen-1782448905657",
+  "updatedAt": "2026-07-13T07:57:26.539Z",
+  "estimatedCookingTime": "2 hodiny"
+}

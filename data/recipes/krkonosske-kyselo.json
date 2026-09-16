@@ -1,0 +1,41 @@
+{
+  "title": "Krkonošské kyselo",
+  "summary": "Tradiční polévka z žitného kvásku, lesních hub a brambor, zjemněná smetanou a doplněná nadýchanými míchanými vejci. Vyniká vyváženou kyselostí a dokonale krémovou strukturou.",
+  "ingredients": [
+    "[Kvasový základ]",
+    "200 g chlebového žitného kvasu",
+    "500 ml vlažné vody",
+    "[Polévkový základ]",
+    "30 g sušených lesních hub",
+    "500 g brambor (nakrájených na kostky)",
+    "1 l houbového nebo zeleninového vývaru",
+    "3 g drceného kmínu",
+    "10 g soli",
+    "[Vajíčka a dokončení]",
+    "4 ks vajec",
+    "40 g másla",
+    "150 ml zakysané smetany nebo šlehačky"
+  ],
+  "instructions": [
+    "[Kvasový a polévkový základ]",
+    "Aktivní žitný kvásek důkladně rozšlehejte ve vlažné vodě a nechte krátce v teple nastartovat.",
+    "Brambory uvařte v osolené vodě ve slupce do měkka, poté je nechte zchladnout, oloupejte a nakrájejte na úhledné kostky.",
+    "Do hrnce s horkým zeleninovým vývarem přidejte předem namočené sušené houby včetně tekutiny, ve které se máčely, a drcený kmín.",
+    "Do teplého vývaru za stálého šlehání metličkou pomalu vlévejte připravený kvásek, přiveďte k varu, ihned snižte teplotu a za občasného míchání nechte mírně probublávat, aby se škroby plně provařily a polévka ztratila syrovou moučnou chuť.",
+    "[Příprava míchaných vajec na másle]",
+    "Na pánvi rozpusťte máslo a pomalu na něm orestujte nadrobno nakrájenou žlutou cibuli dosklovata.",
+    "[Zjemnění smetanou a podávání]",
+    "K cibuli přidejte vyklepnutá vejce, jemně osolte a na mírném ohni umíchejte do sametové, krémové konzistence.",
+    "Do řádně provařené polévky vlijte smetanu ke šlehání, podle chuti dosolte a nechte již jen krátce přejít varem pro spojení chutí.",
+    "Do hlubokých talířů rozdělte teplé nakrájené brambory, přelijte je horkým kyselem a navrch položte čerstvou porci krémových míchaných vajec."
+  ],
+  "applianceTips": "Pro dokonalou kontrolu teploty při dlouhém provařování kvásku využijte indukční varnou desku nastavenou na nízký výkon (přibližně 85 až 90 stupňů Celsia). Použití hrnce se silným sendvičovým dnem účinně zabrání přichytávání žitného škrobu k povrchu.",
+  "expertJustification": "Doba varu kvásku byla upravena na nezbytných 25 až 30 minut, což odpovídá pekařským a kulinářským standardům pro úplné odbourání chuti syrové mouky a optimální zhoustnutí škrobů. Brambory uvařené samostatně ve slupce si uchovají pevnost a neuvolní do polévky přebytečný volný škrob. Oddělená příprava vajec na másle při nízké teplotě zajišťuje jejich maximální vláčnost a zabraňuje sražení v kyselém prostředí polévky.",
+  "applianceType": "Indukční varná deska a pánev",
+  "cookingTime": "60 min",
+  "difficulty": "Střední",
+  "category": "Polévky",
+  "id": "gen-1781777007027",
+  "estimatedCookingTime": "30 min",
+  "updatedAt": "2026-07-13T08:49:49.749Z"
+}
