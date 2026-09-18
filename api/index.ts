@@ -150,6 +150,11 @@ app.get(["/api/health", "/health"], (req, res) => {
 
 app.get(["/api", "/api/recipes", "/recipes"], async (req, res) => {
   try {
+    res.set({
+      "Cache-Control": "no-store, no-cache, must-revalidate, proxy-revalidate",
+      "Pragma": "no-cache",
+      "Expires": "0"
+    });
     const recipesSnapshot = await getDocs(collection(db, "recipes"));
     let recipes = recipesSnapshot.docs.map(doc => doc.data());
     

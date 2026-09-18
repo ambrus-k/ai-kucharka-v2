@@ -570,7 +570,6 @@ export default function App() {
     recipesCount?: number;
     geminiOk: boolean;
     geminiMessage: string;
-    recipesCount: number;
     githubOk?: boolean;
     githubMessage?: string;
   } | null>(null);
@@ -586,6 +585,8 @@ export default function App() {
   // States for Recipe Controls & Printing
   const [paperFontSize, setPaperFontSize] = useState<"normal" | "large" | "extra-large">("normal");
   const [printNotice, setPrintNotice] = useState<string | null>(null);
+  const [isRefreshingApp, setIsRefreshingApp] = useState(false);
+  const [refreshNotice, setRefreshNotice] = useState<{ text: string; isError?: boolean; count?: number } | null>(null);
 
   // States for search and filter
   const [searchQuery, setSearchQuery] = useState("");
@@ -1021,6 +1022,138 @@ export default function App() {
       setManualSyncResult({ success: false, message: `Chyba spojení: ${err.message || err}` });
     } finally {
       setIsManualSyncing(false);
+    }
+  };
+
+  const handleRefreshAppAndDatabase = async () => {
+    if (isRefreshingApp) return;
+    setIsRefreshingApp(true);
+    try {
+      const headers: Record<string, string> = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+      };
+      const storedUser = localStorage.getItem("ai_kucharka_github_username") || "ambrus-k";
+      const storedRepo = localStorage.getItem("ai_kucharka_github_repo") || "ai-kucharka";
+      const storedBranch = localStorage.getItem("ai_kucharka_github_branch") || "main";
+      const storedToken = localStorage.getItem("ai_kucharka_github_token") || "";
+      if (storedUser) headers["x-github-username"] = storedUser;
+      if (storedRepo) headers["x-github-repo"] = storedRepo;
+      if (storedBranch) headers["x-github-branch"] = storedBranch;
+      if (storedToken) headers["x-github-token"] = storedToken;
+
+      const timestamp = Date.now();
+      const response = await fetch(`/api/recipes?_t=${timestamp}`, {
+        headers,
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `Chyba serveru (${response.status})`);
+      }
+
+      const data = await response.json();
+      const list = Array.isArray(data) ? data : (data.recipes || []);
+
+      if (!list || list.length === 0) {
+        throw new Error("Server nevrátil žádné recepty.");
+      }
+
+      const defaultMap = new Map(DEFAULT_RECIPES.map(r => [r.title, r]));
+      const upgradedList = list.map((loadedRecipe: Recipe) => {
+        const def = defaultMap.get(loadedRecipe.title);
+        if (def) {
+          const defHasHeaders = (def.instructions || []).some(i => isIngredientHeader(i));
+          const loadedHasHeaders = (loadedRecipe.instructions || []).some(i => isIngredientHeader(i));
+          if (defHasHeaders && !loadedHasHeaders) {
+            return {
+              ...loadedRecipe,
+              instructions: [...def.instructions],
+              ingredients: (def.ingredients && def.ingredients.some(i => isIngredientHeader(i)))
+                ? [...def.ingredients]
+                : loadedRecipe.ingredients
+            };
+          }
+        }
+        return loadedRecipe;
+      });
+
+      const cleaned = upgradedList.map(removePreservativesFromSoup);
+
+      // Save to storage
+      localStorage.setItem("ai_kucharka_recipes", JSON.stringify(cleaned));
+      localStorage.setItem("ai_kucharka_initialized", "true");
+      setRecipes(cleaned);
+
+      // If user currently views a recipe, refresh it with newest data
+      if (selectedRecipe) {
+        const updatedSelected = cleaned.find(r => r.id === selectedRecipe.id);
+        if (updatedSelected) {
+          setSelectedRecipe(updatedSelected);
+          if (isEditing) {
+            setEditTitle(updatedSelected.title || "");
+            setEditSummary(updatedSelected.summary || "");
+            setEditIngredientsText(updatedSelected.ingredients ? updatedSelected.ingredients.join("\n") : "");
+            setEditInstructionsText(updatedSelected.instructions ? updatedSelected.instructions.join("\n") : "");
+            setEditApplianceTips(updatedSelected.applianceTips || "");
+            setEditExpertJustification(updatedSelected.expertJustification || "");
+            setEditApplianceType(updatedSelected.applianceType || "");
+            setEditCookingTime(updatedSelected.cookingTime || "");
+            setEditEstimatedCookingTime(updatedSelected.estimatedCookingTime || "");
+            setEditDifficulty(updatedSelected.difficulty || "Střední");
+            setEditCategory(updatedSelected.category || getRecipeCategory(updatedSelected));
+          }
+        }
+      }
+
+      // Check app config
+      try {
+        const configRes = await fetch(`/api/config?_t=${timestamp}`, { cache: "no-store" });
+        if (configRes.ok) {
+          const configData = await configRes.json();
+          if (configData && configData.readOnly) setIsReadOnly(true);
+        }
+      } catch (e) {
+        // non-blocking
+      }
+
+      // Check Service Worker updates if in PWA / browser
+      if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+        try {
+          const registrations = await navigator.serviceWorker.getRegistrations();
+          for (const reg of registrations) {
+            await reg.update().catch(() => {});
+          }
+        } catch (swErr) {
+          // ignore
+        }
+      }
+
+      const msg = `Kompletní databáze (${cleaned.length} receptů) a aplikace byly úspěšně načteny ze serveru.`;
+      setRefreshNotice({ text: msg, isError: false, count: cleaned.length });
+      setTimeout(() => {
+        setRefreshNotice(prev => (prev?.text === msg ? null : prev));
+      }, 5000);
+
+      sendWorkFinishedNotification(
+        "Aplikace a databáze aktualizována",
+        `Všechny recepty (${cleaned.length}) byly znovu načteny v nejnovější verzi.`
+      );
+    } catch (err: any) {
+      console.error("Chyba při obnově aplikace a databáze:", err);
+      const errMsg = `Chyba při aktualizaci databáze: ${err.message || "Nelze se spojit se serverem."}`;
+      setRefreshNotice({ text: errMsg, isError: true });
+      setTimeout(() => {
+        setRefreshNotice(prev => (prev?.text === errMsg ? null : prev));
+      }, 6000);
+      sendWorkFinishedNotification(
+        "Chyba při aktualizaci",
+        err.message || "Nepodařilo se znovu načíst databázi ze serveru.",
+        "warn"
+      );
+    } finally {
+      setIsRefreshingApp(false);
     }
   };
 
@@ -3487,9 +3620,62 @@ ${separator}`;
         )}
       </AnimatePresence>
 
-
-
-
+      {/* FLOATING APP & DATABASE REFRESH STATUS NOTICE */}
+      <AnimatePresence>
+        {refreshNotice && (
+          <motion.div
+            initial={{ opacity: 0, y: -50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -20, scale: 0.95 }}
+            transition={{ type: "spring", damping: 25, stiffness: 350 }}
+            style={{ zIndex: 99999 }}
+            className={`fixed top-6 left-1/2 -translate-x-1/2 w-[92%] max-w-lg text-white rounded-2xl shadow-2xl p-4 flex items-start gap-3.5 pointer-events-auto no-print border ${
+              refreshNotice.isError
+                ? "bg-red-950 border-red-800"
+                : "bg-[#1B4332] border-emerald-600/80"
+            }`}
+          >
+            <div className={`p-2 rounded-xl shrink-0 ${
+              refreshNotice.isError ? "bg-red-900 text-red-300" : "bg-emerald-800 text-emerald-300"
+            }`}>
+              {refreshNotice.isError ? (
+                <AlertCircle className="h-5 w-5 text-red-400" />
+              ) : (
+                <Check className="h-5 w-5 text-emerald-400" />
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <h4 className="font-bold text-sm text-emerald-200">
+                {refreshNotice.isError ? "Chyba při aktualizaci" : "Aplikace a databáze aktualizovány"}
+              </h4>
+              <p className="text-xs text-slate-100 mt-1 leading-relaxed">
+                {refreshNotice.text}
+              </p>
+              {!refreshNotice.isError && (
+                <div className="mt-2.5 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => window.location.reload()}
+                    className="text-[11px] font-bold bg-white/10 hover:bg-white/20 text-white px-2.5 py-1 rounded-lg border border-white/20 transition-all cursor-pointer flex items-center gap-1.5"
+                    title="Znovu načíst celou stránku prohlížeče"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    <span>Znovunačíst celou stránku</span>
+                  </button>
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setRefreshNotice(null)}
+              className="text-slate-300 hover:text-white p-1 rounded-lg hover:bg-white/10 cursor-pointer"
+              title="Zavřít oznámení"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* HEADER */}
       <header className="no-print bg-white border-b border-[#E8E8E1] py-3.5 px-4 md:px-6 sticky top-0 z-40 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
@@ -3498,6 +3684,7 @@ ${separator}`;
             {/* DOMŮ BUTTON */}
             <button
               type="button"
+              id="btn-nav-home"
               onClick={() => navigateHome()}
               className="bg-[#1B4332] hover:bg-[#2D6A4F] text-white p-2 sm:px-3 rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 text-xs sm:text-sm font-bold cursor-pointer active:scale-95 group shrink-0"
               title="Domů na přehled receptů"
@@ -3506,9 +3693,35 @@ ${separator}`;
               <span className="hidden sm:inline">Domů</span>
             </button>
 
+            {/* AKTUALIZOVAT APLIKACI A DATABÁZI */}
+            <button
+              type="button"
+              id="btn-refresh-app-and-db"
+              onClick={handleRefreshAppAndDatabase}
+              disabled={isRefreshingApp}
+              className={`p-2 sm:px-3 rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 text-xs sm:text-sm font-bold cursor-pointer active:scale-95 group shrink-0 ${
+                isRefreshingApp
+                  ? "bg-emerald-100 text-emerald-800 border border-emerald-300 animate-pulse cursor-wait"
+                  : "bg-[#F5F5F0] hover:bg-[#E8E8E1] text-[#1B4332] border border-[#E8E8E1] hover:border-[#1B4332]/30"
+              }`}
+              title="Aktualizovat celou aplikaci a znovu načíst kompletní databázi receptů ze serveru"
+            >
+              <RefreshCw
+                className={`h-5 w-5 ${
+                  isRefreshingApp
+                    ? "animate-spin text-emerald-700"
+                    : "group-hover:rotate-180 transition-transform duration-500 text-[#1B4332]"
+                }`}
+              />
+              <span className="hidden sm:inline">
+                {isRefreshingApp ? "Aktualizuji..." : "Aktualizovat"}
+              </span>
+            </button>
+
             {/* BACK ARROW BUTTON */}
             <button
               type="button"
+              id="btn-nav-back"
               onClick={handleGoBack}
               disabled={!hasBackStep}
               className={`py-2 px-3 rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 text-xs sm:text-sm font-bold active:scale-95 group shrink-0 ${hasBackStep ? 'bg-[#F5F5F0] hover:bg-[#E8E8E1] text-[#2C2C2C] border border-[#E8E8E1] cursor-pointer' : 'bg-[#F5F5F0] text-[#A0A096] border border-[#E8E8E1] opacity-60 cursor-not-allowed'}`}
