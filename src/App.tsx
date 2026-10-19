@@ -237,6 +237,70 @@ export function getRecipeCategory(recipe: Recipe): string {
   return autoCat;
 }
 
+/**
+ * Normalizuje text pro fulltextové vyhledávání:
+ * - Odstraní diakritiku (háčky, čárky) pomocí NFD dekompozice
+ * - Převede na malá písmena
+ * - Nahradí interpunkci mezerami a sjednotí vícenásobné mezery
+ * Např. "Svíčková na smetaně" -> "svickova na smetane"
+ */
+export function normalizeSearchText(text: string | null | undefined): string {
+  if (!text) return "";
+  return text
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Ohodnotí relevanci shody receptu s hledaným dotazem.
+ * Výsledky se shodou v názvu receptu mají nejvyšší prioritu.
+ */
+export function getRecipeSearchScore(recipe: Recipe, tokens: string[], rawNormQuery: string): number {
+  const normTitle = normalizeSearchText(recipe.title);
+  const normSummary = normalizeSearchText(recipe.summary);
+  const normCategory = normalizeSearchText(recipe.category || getRecipeCategory(recipe));
+  const normIngredients = normalizeSearchText(Array.isArray(recipe.ingredients) ? recipe.ingredients.join(" ") : "");
+
+  let score = 0;
+
+  // Shoda celé fráze v názvu
+  if (rawNormQuery && normTitle.includes(rawNormQuery)) {
+    score += 150;
+    if (normTitle.startsWith(rawNormQuery)) {
+      score += 60;
+    }
+  }
+
+  // Shoda jednotlivých slov/tokenů (i částí slov)
+  for (const token of tokens) {
+    if (!token) continue;
+    // Celé samostatné slovo v názvu
+    const wordRegex = new RegExp(`(^|\\s)${token}($|\\s)`);
+    if (wordRegex.test(normTitle)) {
+      score += 50;
+    } else if (normTitle.includes(token)) {
+      // Část slova v názvu (např. "svic" v "svickova")
+      score += 30;
+    }
+
+    if (normCategory.includes(token)) {
+      score += 15;
+    }
+    if (normSummary.includes(token)) {
+      score += 10;
+    }
+    if (normIngredients.includes(token)) {
+      score += 5;
+    }
+  }
+
+  return score;
+}
+
 export function removePreservativesFromSoup(recipe: Recipe): Recipe {
   const isSoup = recipe.category === "Polévky" || 
                  getRecipeCategory(recipe) === "Polévky" || 
@@ -3565,14 +3629,27 @@ ${separator}`;
     e.target.value = "";
   };
 
-  // Filter and search computation
-  const filteredRecipes = recipes.filter(recipe => {
-    // Kolonku hledat (Title or Summary)
-    const matchesSearch = recipe.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
-                          recipe.summary.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    return matchesSearch;
-  });
+  // Filter and search computation (vyhledávání bez diakritiky, části slov i více slov napříč receptem)
+  const filteredRecipes = useMemo(() => {
+    const rawTrimmed = searchQuery.trim();
+    if (!rawTrimmed) return recipes;
+
+    const normQuery = normalizeSearchText(rawTrimmed);
+    const tokens = normQuery.split(" ").filter(Boolean);
+    if (tokens.length === 0) return recipes;
+
+    return recipes.filter(recipe => {
+      const titleNorm = normalizeSearchText(recipe.title);
+      const summaryNorm = normalizeSearchText(recipe.summary);
+      const categoryNorm = normalizeSearchText(recipe.category || getRecipeCategory(recipe));
+      const applianceNorm = normalizeSearchText(recipe.applianceType);
+      const ingredientsNorm = normalizeSearchText(Array.isArray(recipe.ingredients) ? recipe.ingredients.join(" ") : "");
+
+      const corpus = `${titleNorm} ${summaryNorm} ${categoryNorm} ${applianceNorm} ${ingredientsNorm}`;
+
+      return tokens.every(tok => corpus.includes(tok));
+    });
+  }, [recipes, searchQuery]);
 
   const toggleIngredient = (ing: string) => {
     setCheckedIngredients(prev => ({
@@ -3977,9 +4054,20 @@ ${separator}`;
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Např. svíčková, bůček, guláš..."
-                  className="w-full pl-9 pr-4 py-2 text-sm bg-white border border-[#E8E8E1] rounded-lg focus:outline-hidden focus:ring-1 focus:ring-[#1B4332] focus:border-[#1B4332] text-[#2C2C2C] placeholder-[#9A9A8C] shadow-xs"
+                  placeholder="Hledat (např. svickova, bucek, gulas...)"
+                  className="w-full pl-9 pr-8 py-2 text-sm bg-white border border-[#E8E8E1] rounded-lg focus:outline-hidden focus:ring-1 focus:ring-[#1B4332] focus:border-[#1B4332] text-[#2C2C2C] placeholder-[#9A9A8C] shadow-xs"
                 />
+                {searchQuery && (
+                  <button
+                    type="button"
+                    onClick={() => setSearchQuery("")}
+                    className="absolute inset-y-0 right-0 flex items-center pr-2.5 text-[#9A9A8C] hover:text-[#1B4332] transition-colors cursor-pointer"
+                    title="Vymazat vyhledávání"
+                    aria-label="Vymazat vyhledávání"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                )}
               </div>
             </div>
 
@@ -4058,8 +4146,20 @@ ${separator}`;
                   <div className="space-y-3">
                     {categories.map(category => {
                       const recs = grouped[category];
-                      const sortedRecs = [...recs].sort((a, b) => a.title.localeCompare(b.title, "cs"));
-                      const isCollapsed = collapsedCategories[category] === true;
+                      const isSearching = Boolean(searchQuery.trim());
+                      const sortedRecs = [...recs].sort((a, b) => {
+                        if (isSearching) {
+                          const normQ = normalizeSearchText(searchQuery);
+                          const tokens = normQ.split(" ").filter(Boolean);
+                          const scoreA = getRecipeSearchScore(a, tokens, normQ);
+                          const scoreB = getRecipeSearchScore(b, tokens, normQ);
+                          if (scoreA !== scoreB) {
+                            return scoreB - scoreA;
+                          }
+                        }
+                        return a.title.localeCompare(b.title, "cs");
+                      });
+                      const isCollapsed = isSearching ? false : (collapsedCategories[category] === true);
 
                       return (
                         <div key={category} className="space-y-1 bg-[#FDFCF7]/40 border border-[#E8E8E1]/40 rounded-xl p-1.5">
@@ -4154,8 +4254,20 @@ ${separator}`;
                   <div className="space-y-3">
                     {letters.map(letter => {
                       const recs = grouped[letter];
-                      const sortedRecs = [...recs].sort((a, b) => a.title.localeCompare(b.title, "cs"));
-                      const isCollapsed = collapsedAlphabet[letter] === true;
+                      const isSearching = Boolean(searchQuery.trim());
+                      const sortedRecs = [...recs].sort((a, b) => {
+                        if (isSearching) {
+                          const normQ = normalizeSearchText(searchQuery);
+                          const tokens = normQ.split(" ").filter(Boolean);
+                          const scoreA = getRecipeSearchScore(a, tokens, normQ);
+                          const scoreB = getRecipeSearchScore(b, tokens, normQ);
+                          if (scoreA !== scoreB) {
+                            return scoreB - scoreA;
+                          }
+                        }
+                        return a.title.localeCompare(b.title, "cs");
+                      });
+                      const isCollapsed = isSearching ? false : (collapsedAlphabet[letter] === true);
 
                       return (
                         <div key={letter} className="space-y-1 bg-[#FDFCF7]/40 border border-[#E8E8E1]/40 rounded-xl p-1.5">
@@ -7508,18 +7620,34 @@ ${separator}`;
                       type="text"
                       value={categorySearchQuery}
                       onChange={(e) => setCategorySearchQuery(e.target.value)}
-                      placeholder="Vyhledat recept podle názvu..."
-                      className="w-full text-xs p-3 pl-9 border border-[#E8E8E1] rounded-xl bg-white text-[#2C2C2C] focus:outline-hidden focus:ring-1 focus:ring-[#1B4332]"
+                      placeholder="Vyhledat recept podle názvu (i bez diakritiky)..."
+                      className="w-full text-xs p-3 pl-9 pr-8 border border-[#E8E8E1] rounded-xl bg-white text-[#2C2C2C] focus:outline-hidden focus:ring-1 focus:ring-[#1B4332]"
                     />
                     <div className="absolute left-3 top-3.5 text-slate-400">
                       <Search className="h-4 w-4" />
                     </div>
+                    {categorySearchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setCategorySearchQuery("")}
+                        className="absolute right-3 top-3 text-slate-400 hover:text-slate-600 transition-colors"
+                        title="Vymazat filtr"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    )}
                   </div>
 
                   {/* List of Recipes */}
                   <div className="border border-[#E8E8E1] rounded-xl bg-white divide-y divide-[#F4F3EA] overflow-y-auto max-h-[50vh]">
                     {recipes
-                      .filter(recipe => recipe.title.toLowerCase().includes(categorySearchQuery.toLowerCase()))
+                      .filter(recipe => {
+                        if (!categorySearchQuery.trim()) return true;
+                        const normQ = normalizeSearchText(categorySearchQuery);
+                        const tokens = normQ.split(" ").filter(Boolean);
+                        const normTitle = normalizeSearchText(recipe.title);
+                        return tokens.every(tok => normTitle.includes(tok));
+                      })
                       .sort((a,b) => a.title.localeCompare(b.title, "cs"))
                       .map(recipe => {
                         const currentCat = recipe.category || getRecipeCategory(recipe);
