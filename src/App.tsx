@@ -53,7 +53,8 @@ import {
   Type,
   Home,
   Activity,
-  Share
+  Share,
+  HelpCircle
 } from "lucide-react";
 import { Recipe } from "./types";
 import { DEFAULT_RECIPES } from "./defaultRecipes";
@@ -650,6 +651,7 @@ export default function App() {
   // States for Recipe Controls & Printing
   const [paperFontSize, setPaperFontSize] = useState<"normal" | "large" | "extra-large">("normal");
   const [printNotice, setPrintNotice] = useState<string | null>(null);
+  const [showAirPrintModal, setShowAirPrintModal] = useState<boolean>(false);
   const [isRefreshingApp, setIsRefreshingApp] = useState(false);
   const [refreshNotice, setRefreshNotice] = useState<{ text: string; isError?: boolean; count?: number } | null>(null);
 
@@ -2355,30 +2357,29 @@ Vygenerováno dne: ${new Date().toLocaleDateString("cs-CZ")}
 ${separator}`;
   };
 
-  const downloadRecipePDF = async () => {
-    if (!selectedRecipe) return;
-
-    // Grab the beautifully rendered recipe container element present in the document
+  const generateRecipePdfBlob = async (
+    recipe: Recipe,
+    scale: number,
+    fontSizeMode: "normal" | "large" | "extra-large"
+  ): Promise<Blob> => {
     const element = document.querySelector(".printable-recipe-sheet");
-    if (!element) {
-      setPrintNotice("Náhled receptu nebyl nalezen v dokumentu.");
-      setTimeout(() => setPrintNotice(null), 5000);
-      return;
+    let clonedHtml = "";
+    if (element) {
+      clonedHtml = element.innerHTML;
+    } else {
+      const fullHtml = buildRecipePrintHtml(recipe, scale, fontSizeMode);
+      const match = fullHtml.match(/<div class="recipe-sheet">([\s\S]*?)<\/div>\s*<script>/i);
+      clonedHtml = match ? match[1] : fullHtml;
     }
 
-    setPrintNotice("Příprava PDF dokumentu ke stažení...");
-
     let iframe: HTMLIFrameElement | null = null;
-
     try {
-      const title = selectedRecipe.title;
-      const cleanFilename = `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-recept.pdf`;
+      const cleanFilename = `${recipe.title.toLowerCase().replace(/[^a-z0-9à-ž]+/gi, "-")}-recept.pdf`;
 
-      // 1. Create an isolated iframe to completely bypass main page style sheets containing "oklch"
       iframe = document.createElement("iframe");
       iframe.style.position = "absolute";
       iframe.style.width = "820px";
-      iframe.style.height = "2500px"; // Provide a generous initial height
+      iframe.style.height = "2500px";
       iframe.style.left = "-9999px";
       iframe.style.top = "-9999px";
       iframe.style.border = "none";
@@ -2390,10 +2391,6 @@ ${separator}`;
         throw new Error("Nepodařilo se vytvořit tiskový kontext.");
       }
 
-      // Clone original element’s HTML mockup
-      const clonedHtml = element.innerHTML;
-
-      // 2. Clean CSS styles defining look & feel of the PDF *without* any "oklch"
       const pdfBaseSizes = {
         "normal": {
           xs: "13.5px",
@@ -2422,7 +2419,7 @@ ${separator}`;
           h3: "24.5px",
           lineHeight: "1.65"
         }
-      }[paperFontSize] || {
+      }[fontSizeMode] || {
         xs: "13.5px",
         sm: "15px",
         base: "16.5px",
@@ -2679,7 +2676,6 @@ ${separator}`;
         }
       `;
 
-      // 3. Build safe HTML inside the iframe
       iframeDoc.open();
       iframeDoc.write(`
         <!DOCTYPE html>
@@ -2697,7 +2693,6 @@ ${separator}`;
       `);
       iframeDoc.close();
 
-      // Ensure the newly written document has processed styles and completed render layout
       await new Promise((resolve) => setTimeout(resolve, 200));
 
       const pdfRootElement = iframeDoc.getElementById("pdf-root");
@@ -2705,7 +2700,6 @@ ${separator}`;
         throw new Error("Chyba při přípravě struktury tisku uvnitř iframe.");
       }
 
-      // 4. Install html2pdf inside the iframe to avoid main document namespace collision and oklch parsing
       const html2pdf = await new Promise<any>((resolve, reject) => {
         if (iframeWin.html2pdf) {
           resolve(iframeWin.html2pdf);
@@ -2722,14 +2716,12 @@ ${separator}`;
             reject(new Error("Nezdařilo se svázat html2pdf s vnitřním oknem tiskového kontextu."));
           }
         };
-        script.onerror = () => reject(new Error("Nepodařilo se stáhnout tiskovou knihovnu uvnitř iframe."));
+        script.onerror = () => reject(new Error("Nepodařilo se načíst knihovnu pro generování PDF."));
         iframeDoc.body.appendChild(script);
       });
 
-      // Compact margins for standard A4 (12mm on all sides)
       const safeMargin = iframeWin.JSON.parse("[12, 12, 12, 12]");
 
-      // Adjust height of the iframe so html2pdf layout is entirely visible
       const scrollHeight = Math.max(
         iframeDoc.body?.scrollHeight || 0,
         iframeDoc.documentElement?.scrollHeight || 0,
@@ -2738,7 +2730,6 @@ ${separator}`;
       );
       iframe.style.height = `${scrollHeight + 150}px`;
 
-      // Configure beautiful options for high-quality standard A4 PDFs
       const opt = {
         margin:       safeMargin,
         filename:     cleanFilename,
@@ -2753,10 +2744,25 @@ ${separator}`;
         pagebreak:    { mode: ['avoid-all', 'css', 'legacy'] }
       };
 
-      // 5. Generate and download PDF inside parent context as a Blob structure
-      const blob = await html2pdf().set(opt).from(pdfRootElement).output("blob");
+      const blob: Blob = await html2pdf().set(opt).from(pdfRootElement).output("blob");
+      return blob;
+    } finally {
+      if (iframe && iframe.parentNode) {
+        iframe.parentNode.removeChild(iframe);
+      }
+    }
+  };
 
-      // 6. Trigger native user-centric download in the parent browser tab
+  const downloadRecipePDF = async () => {
+    if (!selectedRecipe) return;
+
+    setPrintNotice("Příprava PDF dokumentu ke stažení...");
+
+    try {
+      const title = selectedRecipe.title;
+      const cleanFilename = `${title.toLowerCase().replace(/[^a-z0-9à-ž]+/gi, "-")}-recept.pdf`;
+      const blob = await generateRecipePdfBlob(selectedRecipe, scaleFactor, paperFontSize);
+
       const blobUrl = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.id = "pdf-download-link";
@@ -2769,15 +2775,10 @@ ${separator}`;
 
       setPrintNotice("PDF soubor s receptem byl úspěšně stažen!");
       setTimeout(() => setPrintNotice(null), 5000);
-
     } catch (err: any) {
       console.error("PDF generation failed:", err);
       setPrintNotice(`Chyba při přípravě PDF: ${err.message || err}`);
       setTimeout(() => setPrintNotice(null), 6000);
-    } finally {
-      if (iframe) {
-        document.body.removeChild(iframe);
-      }
     }
   };
 
@@ -3244,22 +3245,24 @@ ${separator}`;
 </html>`;
   };
 
+  const handleDirectAirPrint = () => {
+    if (!selectedRecipe) return;
+    setPrintNotice("Otevírám přímý tisk AirPrint (Možnosti tiskárny na iPadu)...");
+    try {
+      window.print();
+    } catch (e) {
+      console.warn("Direct window.print failed:", e);
+      handlePrintRecipe();
+    }
+    setTimeout(() => setPrintNotice(null), 4000);
+  };
+
   const handlePrintRecipe = () => {
     if (!selectedRecipe) return;
 
     if (isIPadOrIOSDevice()) {
-      // In iOS/iPadOS Safari, popup windows (window.open) are blocked by default or fail to trigger AirPrint.
-      // Calling window.print() directly on the document triggers the native AirPrint dialog immediately!
-      try {
-        setPrintNotice("Otevírám dialog AirPrint tisku na iPadu...");
-        window.print();
-        setTimeout(() => setPrintNotice(null), 4000);
-        return;
-      } catch (err) {
-        console.warn("Direct window.print on iOS failed, falling back to AirPrint share:", err);
-        handleAirPrintShare();
-        return;
-      }
+      handleDirectAirPrint();
+      return;
     }
 
     const htmlContent = buildRecipePrintHtml(selectedRecipe, scaleFactor, paperFontSize);
@@ -3298,65 +3301,52 @@ ${separator}`;
     if (!selectedRecipe) return;
 
     const title = selectedRecipe.title;
-    const cleanFilename = `${title.toLowerCase().replace(/[^a-z0-9à-ž]+/gi, "-")}-recept`;
-    const htmlContent = buildRecipePrintHtml(selectedRecipe, scaleFactor, paperFontSize);
+    const cleanFilename = `${title.toLowerCase().replace(/[^a-z0-9à-ž]+/gi, "-")}-recept.pdf`;
 
-    // 1. Try Web Share API (native on iPadOS / iOS - exposes AirPrint in system share sheet)
-    if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
-      try {
-        // Attempt file share first (iPadOS Safari presents the file and offers "Tisk" / AirPrint)
-        const blob = new Blob([htmlContent], { type: "text/html;charset=utf-8" });
-        const file = new File([blob], `${cleanFilename}.html`, { type: "text/html" });
+    setPrintNotice("Generuji tiskový PDF soubor pro AirPrint sdílení...");
 
-        if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          setPrintNotice("Otevírám systémové sdílení na iPadu s volbou AirPrint tisku...");
+    try {
+      // 1. Generate real PDF Blob
+      // CRITICAL FOR IPADOS / IOS:
+      // The iOS system Share Sheet ONLY includes the "Tisk" (AirPrint) action extension
+      // when sharing a genuine application/pdf file! Sharing text/html or text omits the print action.
+      const pdfBlob = await generateRecipePdfBlob(selectedRecipe, scaleFactor, paperFontSize);
+      const pdfFile = new File([pdfBlob], cleanFilename, { type: "application/pdf" });
+
+      if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+        if (navigator.canShare && navigator.canShare({ files: [pdfFile] })) {
+          setPrintNotice("Otevírám nabídku iPadu: klepněte na 'Tisk' pro bezdrátovou AirPrint tiskárnu...");
           await navigator.share({
             title: `${title} - AI Kuchařka`,
-            text: `Recept: ${title}`,
-            files: [file],
+            text: `Tiskový recept: ${title}`,
+            files: [pdfFile],
           });
-          setTimeout(() => setPrintNotice(null), 4000);
+          setTimeout(() => setPrintNotice(null), 5000);
           return;
         }
-      } catch (fileErr: any) {
-        if (fileErr.name === "AbortError") {
-          return;
-        }
-        console.warn("File share not accepted, trying text share:", fileErr);
       }
-
-      try {
-        // Fallback to text & URL share (iPadOS system sheet still presents "Tisk" / AirPrint)
-        const recipeText = generateRecipeText();
-        setPrintNotice("Otevírám systémové sdílení iPadu (AirPrint)...");
-        await navigator.share({
-          title: `${title} - AI Kuchařka`,
-          text: recipeText,
-          url: window.location.href,
-        });
-        setTimeout(() => setPrintNotice(null), 4000);
+    } catch (shareErr: any) {
+      if (shareErr.name === "AbortError") {
+        setPrintNotice(null);
         return;
-      } catch (textErr: any) {
-        if (textErr.name === "AbortError") {
-          return;
-        }
-        console.warn("Text share failed, falling back to direct print:", textErr);
       }
+      console.warn("PDF Web Share failed or was cancelled:", shareErr);
     }
 
-    // 2. Direct print fallback:
-    // On iPadOS Safari, calling window.print() directly on the active document opens the AirPrint dialog directly!
+    // 2. Direct AirPrint print fallback:
+    // Calling window.print() directly on iPad Safari immediately invokes the native AirPrint "Možnosti tiskárny" dialog!
     setPrintNotice("Spouštím přímý tisk AirPrint...");
     try {
       window.print();
     } catch (e) {
       console.error("Direct print failed:", e);
+      setPrintNotice("Tisk se nezdařil. Zkuste tlačítko 'Uložit jako PDF'.");
     }
-    setTimeout(() => setPrintNotice(null), 4000);
+    setTimeout(() => setPrintNotice(null), 5000);
   };
 
-  const triggerNativePrint = handlePrintRecipe;
-  const triggerPaperPrint = handlePrintRecipe;
+  const triggerNativePrint = handleDirectAirPrint;
+  const triggerPaperPrint = handleDirectAirPrint;
 
 
 
@@ -5447,14 +5437,15 @@ ${separator}`;
                           <span>Uložit jako PDF</span>
                         </button>
 
-                        {/* 4. Tisk */}
+                        {/* 4. AirPrint tisk */}
                         <button
-                          onClick={triggerNativePrint}
-                          className="bg-white text-[#1B4332] hover:bg-emerald-50 border border-[#1B4332] font-bold py-2.5 px-4 rounded-xl text-xs transition-all flex items-center gap-1.5 shadow-xs cursor-pointer"
-                          title="Vytisknout recept přímo"
+                          type="button"
+                          onClick={handleDirectAirPrint}
+                          className="bg-white text-[#1B4332] hover:bg-emerald-50 border border-[#1B4332] font-bold py-2.5 px-4 rounded-xl text-xs transition-all flex items-center gap-1.5 shadow-xs cursor-pointer active:scale-95"
+                          title="Okamžitý bezdrátový AirPrint tisk (vyvolá přímo dialog Možnosti tiskárny na iPadu)"
                         >
                           <Printer className="h-4 w-4 shrink-0" />
-                          <span>Tisk</span>
+                          <span>AirPrint tisk</span>
                         </button>
 
                         {/* 5. AirPrint sdílení */}
@@ -5462,10 +5453,20 @@ ${separator}`;
                           type="button"
                           onClick={handleAirPrintShare}
                           className="bg-[#0284C7] hover:bg-[#0369A1] text-white font-bold py-2.5 px-4 rounded-xl text-xs transition-all flex items-center gap-1.5 shadow-sm cursor-pointer hover:shadow-md active:scale-95 whitespace-nowrap"
-                          title="Vyvolat na iPadu systémové sdílení AirPrint pro bezdrátový tisk nebo odeslání"
+                          title="Otevřít nabídku sdílení iPadu s tiskovým PDF (obsahuje volbu Tisk pro AirPrint i Uložit do souborů)"
                         >
                           <Share className="h-4 w-4 shrink-0" />
                           <span>AirPrint sdílení</span>
+                        </button>
+
+                        {/* 6. AirPrint nápověda & možnosti */}
+                        <button
+                          type="button"
+                          onClick={() => setShowAirPrintModal(true)}
+                          className="bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold p-2.5 rounded-xl text-xs transition-all flex items-center justify-center cursor-pointer shadow-2xs"
+                          title="Možnosti a nápověda k tisku AirPrint na iPadu"
+                        >
+                          <HelpCircle className="h-4 w-4 shrink-0 text-slate-600" />
                         </button>
                       </div>
                     </div>
@@ -5749,26 +5750,36 @@ ${separator}`;
                           <span>{copiedText ? "Zkopírováno!" : "Kopírovat"}</span>
                         </button>
 
-                        {/* Tisknout (Tisk) */}
+                        {/* Tisknout (přímý AirPrint tisk) */}
                         <button
                           type="button"
-                          onClick={triggerPaperPrint}
+                          onClick={handleDirectAirPrint}
                           className="flex items-center gap-1.5 bg-[#1B4332] text-white hover:bg-[#2D6A4F] px-3 py-1.5 rounded-xl font-sans font-bold text-xs transition-all cursor-pointer shadow-md active:scale-95 whitespace-nowrap"
-                          title="Vytisknout recept"
+                          title="Okamžitý bezdrátový AirPrint tisk (vyvolá přímo dialog Možnosti tiskárny na iPadu)"
                         >
                           <Printer className="h-3.5 w-3.5" />
-                          <span>Tisknout</span>
+                          <span>AirPrint tisk</span>
                         </button>
 
-                        {/* AirPrint / Sdílet */}
+                        {/* AirPrint sdílení */}
                         <button
                           type="button"
                           onClick={handleAirPrintShare}
                           className="flex items-center gap-1.5 bg-[#0284C7] hover:bg-[#0369A1] text-white px-3 py-1.5 rounded-xl font-sans font-bold text-xs transition-all cursor-pointer shadow-md active:scale-95 whitespace-nowrap"
-                          title="Vyvolat na iPadu systémové sdílení AirPrint pro bezdrátový tisk a odeslání"
+                          title="Otevřít nabídku sdílení iPadu s tiskovým PDF (obsahuje volbu Tisk pro AirPrint i Uložit do souborů)"
                         >
                           <Share className="h-3.5 w-3.5" />
                           <span>AirPrint sdílení</span>
+                        </button>
+
+                        {/* AirPrint nápověda & možnosti */}
+                        <button
+                          type="button"
+                          onClick={() => setShowAirPrintModal(true)}
+                          className="flex items-center justify-center bg-slate-100 hover:bg-slate-200 text-slate-700 p-1.5 rounded-xl transition-all cursor-pointer shadow-2xs"
+                          title="Možnosti a nápověda k tisku AirPrint na iPadu"
+                        >
+                          <HelpCircle className="h-3.5 w-3.5 text-slate-600" />
                         </button>
                       </div>
 
@@ -8531,6 +8542,161 @@ ${separator}`;
               )}
             </div>
 
+          </div>
+        </div>
+      )}
+
+      {/* AirPrint Options & Guidance Modal for iPad */}
+      {showAirPrintModal && selectedRecipe && (
+        <div 
+          className="fixed inset-0 z-[9999] bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fade-in no-print"
+          onClick={() => setShowAirPrintModal(false)}
+        >
+          <div 
+            className="bg-white rounded-3xl max-w-lg w-full border border-[#E8E8E1] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal Header */}
+            <div className="bg-[#1B4332] text-white p-5 sm:p-6 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 bg-emerald-700/60 rounded-2xl border border-emerald-500/40">
+                  <Printer className="h-6 w-6 text-emerald-200" />
+                </div>
+                <div>
+                  <h3 className="font-serif font-bold text-lg sm:text-xl text-white">
+                    AirPrint tisk na iPadu
+                  </h3>
+                  <p className="text-xs text-emerald-200/90 mt-0.5 font-sans">
+                    {selectedRecipe.title}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAirPrintModal(false)}
+                className="p-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white transition-colors cursor-pointer"
+                title="Zavřít"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="p-5 sm:p-6 space-y-4 overflow-y-auto">
+              <p className="text-xs sm:text-sm text-[#4A4A40] leading-relaxed">
+                Na iPadu máte pro tisk na bezdrátové tiskárně (AirPrint) k dispozici dvě spolehlivé cesty:
+              </p>
+
+              {/* Option 1: Direct AirPrint */}
+              <div className="p-4 rounded-2xl bg-[#F0F4F1] border border-[#2D6A4F]/30 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-black uppercase tracking-wider text-[#1B4332] bg-[#E8F5E9] px-2.5 py-0.5 rounded-full font-sans">
+                    Doporučeno pro iPad
+                  </span>
+                  <span className="text-xs text-emerald-800 font-bold">1 klepnutí</span>
+                </div>
+                <div>
+                  <h4 className="font-serif font-bold text-base text-[#1B4332] flex items-center gap-2">
+                    <Printer className="h-4 w-4 text-emerald-700" />
+                    <span>Přímý AirPrint tisk</span>
+                  </h4>
+                  <p className="text-xs text-[#5C5C50] mt-1 leading-relaxed">
+                    Spustí přímo v Safari nativní systémový dialog iPadu <strong>"Možnosti tiskárny"</strong> pro okamžitý výběr Wi-Fi tiskárny a odeslání tisku.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAirPrintModal(false);
+                    handleDirectAirPrint();
+                  }}
+                  className="w-full bg-[#1B4332] hover:bg-[#2D6A4F] active:scale-98 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+                >
+                  <Printer className="h-4 w-4" />
+                  <span>Spustit přímý AirPrint tisk</span>
+                </button>
+              </div>
+
+              {/* Option 2: System Share Sheet with PDF */}
+              <div className="p-4 rounded-2xl bg-[#F0F9FF] border border-[#0284C7]/30 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-black uppercase tracking-wider text-[#0369A1] bg-[#E0F2FE] px-2.5 py-0.5 rounded-full font-sans">
+                    Systémové sdílení
+                  </span>
+                  <span className="text-xs text-sky-800 font-bold">Tisk / Soubory / AirDrop</span>
+                </div>
+                <div>
+                  <h4 className="font-serif font-bold text-base text-[#0369A1] flex items-center gap-2">
+                    <Share className="h-4 w-4 text-[#0284C7]" />
+                    <span>Sdílet tiskové PDF (s volbou Tisk)</span>
+                  </h4>
+                  <p className="text-xs text-[#5C5C50] mt-1 leading-relaxed">
+                    Vygeneruje precizní tiskový PDF soubor a otevře systémovou nabídku iPadu, kde v seznamu akcí najdete volbu <strong>"Tisk"</strong> (ikona tiskárny) i <strong>"Uložit do souborů"</strong>.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAirPrintModal(false);
+                    handleAirPrintShare();
+                  }}
+                  className="w-full bg-[#0284C7] hover:bg-[#0369A1] active:scale-98 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer"
+                >
+                  <Share className="h-4 w-4" />
+                  <span>Otevřít sdílení iPadu (s volbou Tisk)</span>
+                </button>
+              </div>
+
+              {/* Option 3: Popup Window */}
+              <div className="p-4 rounded-2xl bg-[#FDFCF7] border border-[#E8E8E1] space-y-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-serif font-bold text-sm text-[#1B4332] flex items-center gap-2">
+                    <FileText className="h-4 w-4 text-slate-600" />
+                    <span>Čistý tiskový arch v novém okně</span>
+                  </h4>
+                </div>
+                <p className="text-xs text-[#5C5C50] leading-relaxed">
+                  Zobrazí recept v samostatném čistém okně bez ovládacích prvků aplikace.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAirPrintModal(false);
+                    const htmlContent = buildRecipePrintHtml(selectedRecipe, scaleFactor, paperFontSize);
+                    const printWin = window.open("", "_blank", "width=850,height=1000,scrollbars=yes,resizable=yes");
+                    if (printWin) {
+                      printWin.document.open();
+                      printWin.document.write(htmlContent);
+                      printWin.document.close();
+                      printWin.focus();
+                    }
+                  }}
+                  className="w-full bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 font-bold py-2 px-3 rounded-xl text-xs transition-all flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  <span>Otevřít tiskový arch</span>
+                </button>
+              </div>
+
+              {/* Informative Note */}
+              <div className="bg-[#FFFBEB] border border-[#FEF3C7] rounded-xl p-3 text-[11px] text-[#92400E] leading-relaxed flex items-start gap-2">
+                <Info className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                <span>
+                  <strong>Tip pro iPad:</strong> V systémovém sdílení iPadu se volba <strong>"Tisk"</strong> zobrazuje právě díky formátu PDF. Pokud ji nevidíte mezi prvními ikonami, posuňte seznam dolů k akcím.
+                </span>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="bg-[#F5F5F0] p-4 border-t border-[#E8E8E1] flex justify-end">
+              <button
+                type="button"
+                onClick={() => setShowAirPrintModal(false)}
+                className="px-5 py-2 bg-white hover:bg-slate-100 text-slate-700 border border-[#E8E8E1] text-xs font-bold rounded-xl transition-all cursor-pointer shadow-2xs"
+              >
+                Zavřít
+              </button>
+            </div>
           </div>
         </div>
       )}

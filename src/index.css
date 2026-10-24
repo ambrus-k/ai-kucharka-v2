@@ -65,7 +65,7 @@
     padding: 0 !important;
   }
 
-  #root, main, #main-area {
+  #root, #root > div, main, #main-area, .h-screen, div[class*="h-screen"] {
     display: block !important;
     width: 100% !important;
     max-width: 100% !important;
