@@ -81,7 +81,7 @@ function getAi() {
 }
 
 async function generateContentWithRetry(ai: GoogleGenAI, config: any, retries = 2) {
-  const modelsToTry = ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-1.5-flash"];
+  const modelsToTry = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.5-pro"];
   let lastError: any = null;
 
   for (const modelName of modelsToTry) {
@@ -249,51 +249,91 @@ app.post("/api/test-diagnostics", async (req, res) => {
   res.json(result);
 });
 
-// AI Endpoints
 app.post("/api/enhance-recipe", async (req, res) => {
   if (process.env.VERCEL) return res.status(403).json({ error: "Aplikace je v režimu pouze pro čtení." });
   try {
     const ai = getAi();
     if (!ai) return res.status(503).json({ error: "Gemini API klíč není nakonfigurován." });
     
-    const { originalRecipe, userPrompt, rawText, fileData, mimeType } = req.body;
+    const { originalRecipe, userPrompt, rawText, fileData, fileName, mimeType } = req.body;
     
-    const systemInstruction = `Jsi profesionální šéfkuchař a expert na digitalizaci receptů. Tvým úkolem je vytvořit nebo upravit recept a vrátit ho PŘESNĚ ve formátu JSON, který odpovídá struktuře aplikace. Důležité:
-- Pokud dostaneš fotku nebo text, vytvoř z nich kompletní recept.
-- 'title': Krátký výstižný název.
-- 'summary': Lákavý popis (max 2-3 věty).
-- 'ingredients': Pole stringů s přesným množstvím.
-- 'instructions': Pole stringů popisujících kroky. U každého procesního kroku VŽDY uváděj konkrétní čas a trvání (např. 'pečte 45 minut při 200°C'). Žádné gramy v postupu.
-- 'cookingTime': Celkový čas (např. '1 hodina 30 minut').
-- 'difficulty': Náročnost ('Snadné', 'Střední', 'Těžké').
-- 'category': Kategorie (např. 'Hlavní chody', 'Dezerty', 'Polévky', 'Přílohy').`;
+    const systemInstruction = `Jsi profesionální šéfkuchař a expert na digitalizaci a syntézu kulinářských receptů. Tvým úkolem je vytvořit nebo upravit recept a vrátit ho PŘESNĚ ve formátu JSON, který odpovídá struktuře aplikace.
 
-    let contents = [];
+DŮLEŽITÁ PRAVIDLA PRO POSTUPY PŘÍPRAVY:
+1. Konkrétní časy u všech klíčových procesů: V postupech přípravy ('instructions') MUSÍ být u každého procesního, fyzikálního či chemického kroku (např. klíčení, fermentace, autolýza, rozkvas, kynutí, odležení, namáčení, chlazení, odpočinek, hnětení, pečení, smažení, vaření, šlehání, redukce) VŽDY uveden konkrétní čas a trvání (např. "nechte autolyzovat po dobu 30 minut", "kynutí 60 minut při pokojové teplotě", "odležet v chladničce 4 hodiny", "pečení 45 minut při 200 °C", "hněťte po dobu 10 minut").
+2. Žádné váhové údaje v postupech: V krocích postupu ('instructions') neopakujte gramy, mililitry ani kusy surovin (ty patří výhradně do pole 'ingredients'), ale časové údaje a trvání operací jsou povinné u každého procesního kroku.
+
+STRUKTURA JSON:
+- 'title': Krátký výstižný název pokrmu v češtině.
+- 'summary': Lákavý popis (max 2-3 věty).
+- 'category': Kategorie (např. 'Maso', 'Pečivo', 'Polévky', 'Sladká jídla a moučníky', 'Ostatní').
+- 'cookingTime': Celkový čas (např. '1 hodina 15 minut').
+- 'estimatedCookingTime': Odhadovaný čas přípravy (např. '1 hodina 15 minut').
+- 'difficulty': Náročnost ('Snadné', 'Střední', 'Složité').
+- 'portions': Počet porcí jako číslo (např. 4).
+- 'appliance': Doporučené hlavní zařízení (např. 'Sporák', 'Trouba', 'Remoska', 'Pánev', 'Hrnec', 'Gril').
+- 'applianceTips': Praktický tip pro dané kuchyňské zařízení.
+- 'expertJustification': Odborné kulinářské zdůvodnění postupu nebo chemických reakcí.
+- 'ingredients': Pole řetězců s přesným množstvím a názvem suroviny (např. ["500 g hladké mouky", "250 ml vlažné vody", "10 g soli", "1 ks cibule"]).
+- 'instructions': Pole řetězců popisujících jednotlivé kroky přípravy (s povinnými časy procesů a bez váhových údajů).`;
+
+    let contents: any[] = [];
     
     if (fileData) {
-       const base64Data = fileData.includes("base64,") ? fileData.split("base64,")[1] : fileData;
-       contents.push({
-         inlineData: {
-           data: base64Data,
-           mimeType: mimeType || "image/jpeg"
-         }
-       });
+      const base64Data = fileData.includes("base64,") ? fileData.split("base64,")[1] : fileData;
+      const detectedMime = (mimeType || "").toLowerCase();
+      const fn = (fileName || "").toLowerCase();
+      
+      const isTextFile = detectedMime.startsWith("text/") || 
+                         detectedMime.includes("json") || 
+                         detectedMime.includes("csv") || 
+                         detectedMime.includes("markdown") || 
+                         fn.endsWith(".txt") || fn.endsWith(".md") || fn.endsWith(".markdown") || 
+                         fn.endsWith(".csv") || fn.endsWith(".json") || fn.endsWith(".log") || 
+                         fn.endsWith(".rtf");
+
+      if (isTextFile) {
+        try {
+          const decodedText = Buffer.from(base64Data, "base64").toString("utf-8");
+          contents.push({
+            text: `OBSAH PŘILOŽENÉHO TEXTOVÉHO SOUBORU (${fileName || "příloha"}):\n\n${decodedText}`
+          });
+        } catch (e) {
+          console.error("Chyba při dekódování textu ze souboru:", e);
+        }
+      } else {
+        // Image or PDF
+        let validMime = mimeType || "image/jpeg";
+        if (validMime === "application/octet-stream" || !validMime) {
+          if (fn.endsWith(".png")) validMime = "image/png";
+          else if (fn.endsWith(".webp")) validMime = "image/webp";
+          else if (fn.endsWith(".gif")) validMime = "image/gif";
+          else if (fn.endsWith(".pdf")) validMime = "application/pdf";
+          else validMime = "image/jpeg";
+        }
+        contents.push({
+          inlineData: {
+            data: base64Data,
+            mimeType: validMime
+          }
+        });
+      }
     }
 
-    if (rawText) {
-      contents.push({ text: `ZADÁNÍ NEBO TEXT RECEPTU:\n${rawText}` });
+    if (rawText && rawText.trim()) {
+      contents.push({ text: `ZADÁNÍ, POZNÁMKY NEBO POPIS OD UŽIVATELE:\n${rawText.trim()}` });
     }
     
     if (originalRecipe) {
       contents.push({ text: `PŮVODNÍ RECEPT:\n${JSON.stringify(originalRecipe, null, 2)}` });
     }
     
-    if (userPrompt) {
-      contents.push({ text: `DODATEČNÝ POŽADAVEK:\n${userPrompt}` });
+    if (userPrompt && userPrompt.trim()) {
+      contents.push({ text: `DODATEČNÉ POKYNY:\n${userPrompt.trim()}` });
     }
 
     if (contents.length === 0) {
-      return res.status(400).json({ error: "Zadejte text, vložte obrázek nebo původní recept." });
+      return res.status(400).json({ error: "Zadejte text nebo vložte soubor (obrázek, textový soubor, PDF)." });
     }
     
     const response = await generateContentWithRetry(ai, {
@@ -309,9 +349,21 @@ app.post("/api/enhance-recipe", async (req, res) => {
     if (!recipeData.estimatedCookingTime) {
       recipeData.estimatedCookingTime = recipeData.cookingTime || "30 min";
     }
+    if (!recipeData.category) {
+      recipeData.category = "Ostatní";
+    }
+    if (!recipeData.difficulty) {
+      recipeData.difficulty = "Střední";
+    }
+    if (!recipeData.portions) {
+      recipeData.portions = 4;
+    }
+    ensureNutrition([recipeData]);
+
     return res.json({ recipe: recipeData });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+  } catch (err: any) {
+    console.error("[Enhance Recipe Error]:", err);
+    res.status(500).json({ error: err.message || "Chyba při generování receptu přes AI." });
   }
 });
 

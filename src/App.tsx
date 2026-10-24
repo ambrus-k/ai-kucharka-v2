@@ -52,7 +52,8 @@ import {
   ShoppingBag,
   Type,
   Home,
-  Activity
+  Activity,
+  Share
 } from "lucide-react";
 import { Recipe } from "./types";
 import { DEFAULT_RECIPES } from "./defaultRecipes";
@@ -671,7 +672,9 @@ export default function App() {
   const [fileData, setFileData] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
   const [mimeType, setMimeType] = useState<string | null>(null);
+  const [fileSize, setFileSize] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
+  const [modalDragActive, setModalDragActive] = useState(false);
 
   // Client interactive checklist states
   const [checkedIngredients, setCheckedIngredients] = useState<Record<string, boolean>>({});
@@ -1933,6 +1936,7 @@ export default function App() {
     setAddExpertJustification("");
     setAddFormError(null);
     setAddAiText("");
+    removeFile();
     setAddRecipeTab("manual");
     setShowAddRecipeModal(true);
   };
@@ -2052,14 +2056,14 @@ export default function App() {
   const handleGenerateAiModalRecipe = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!addAiText.trim() && !fileData) {
-      setAddFormError("Prosím napište popis receptu nebo vložte soubor.");
+      setAddFormError("Prosím vložte soubor (obrázek, textový soubor, PDF) nebo napište popis receptu.");
       return;
     }
 
     setIsGeneratingAiModal(true);
     setAddFormError(null);
     setAiModalProgressPercent(12);
-    setAiModalProgressText("Iniciace spojení s Google Gemini 3.1 Pro...");
+    setAiModalProgressText(fileData ? "Skenování a analýza přiloženého souboru přes Gemini AI..." : "Iniciace spojení s Google Gemini AI...");
 
     const aiModalSteps = [
       { p: 25, t: "Skenování surovin a rozpoznávání textu/dokumentu..." },
@@ -2303,6 +2307,7 @@ Zpráva: ${diagnosticsResult.geminiMessage || ""}
   };
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const modalFileInputRef = useRef<HTMLInputElement>(null);
 
   const generateRecipeText = () => {
     if (!selectedRecipe) return "";
@@ -2776,17 +2781,27 @@ ${separator}`;
     }
   };
 
-  const handlePrintRecipe = () => {
-    if (!selectedRecipe) return;
+  const isIPadDevice = (): boolean => {
+    if (typeof window === "undefined" || typeof navigator === "undefined") return false;
+    const ua = navigator.userAgent || "";
+    return (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1) || /iPad/i.test(ua);
+  };
 
-    const title = selectedRecipe.title;
-    const category = selectedRecipe.category || getRecipeCategory(selectedRecipe);
-    const cookingTime = selectedRecipe.cookingTime || "Není specifikováno";
-    const difficulty = selectedRecipe.difficulty || "Střední";
-    const applianceType = selectedRecipe.applianceType || "Standardní spotřebič";
-    const summary = selectedRecipe.summary || "";
-    const applianceTips = selectedRecipe.applianceTips || "";
-    const expertJustification = selectedRecipe.expertJustification || "";
+  const isIPadOrIOSDevice = (): boolean => {
+    if (typeof window === "undefined" || typeof navigator === "undefined") return false;
+    const ua = navigator.userAgent || "";
+    return isIPadDevice() || /iPhone|iPod/i.test(ua);
+  };
+
+  const buildRecipePrintHtml = (recipe: Recipe, scale: number, fontSizeMode: "normal" | "large" | "extra-large"): string => {
+    const title = recipe.title;
+    const category = recipe.category || getRecipeCategory(recipe);
+    const cookingTime = recipe.cookingTime || "Není specifikováno";
+    const difficulty = recipe.difficulty || "Střední";
+    const applianceType = recipe.applianceType || "Standardní spotřebič";
+    const summary = recipe.summary || "";
+    const applianceTips = recipe.applianceTips || "";
+    const expertJustification = recipe.expertJustification || "";
 
     // Scaled typography based on user selected font size (Standardní / Větší +1 / Největší +2)
     const fontConfig = {
@@ -2856,7 +2871,7 @@ ${separator}`;
         checkboxSize: "15px",
         sizeName: "Největší (+2 řádky / 18 pt)"
       }
-    }[paperFontSize] || {
+    }[fontSizeMode] || {
       bodySize: "13.5px",
       bodyLineHeight: "1.45",
       titleSize: "23px",
@@ -2880,8 +2895,8 @@ ${separator}`;
     };
 
     // Ingredients list with scaled quantities and dynamic font size
-    const ingredientsHtml = selectedRecipe.ingredients && selectedRecipe.ingredients.length > 0 
-      ? selectedRecipe.ingredients.map(ing => {
+    const ingredientsHtml = recipe.ingredients && recipe.ingredients.length > 0 
+      ? recipe.ingredients.map(ing => {
           if (isIngredientHeader(ing)) {
             const headerTitle = cleanHeaderTitle(ing);
             return `
@@ -2891,7 +2906,7 @@ ${separator}`;
             `;
           }
           const parsed = parseIngredientString(ing);
-          const displayIng = scaleIngredient(parsed, scaleFactor);
+          const displayIng = scaleIngredient(parsed, scale);
           return `
             <li style="padding: 2.5px 0; border-bottom: 1px solid #EBE8E0; font-size: ${fontConfig.ingSize}; color: #2C2C2C; page-break-inside: avoid; break-inside: avoid; line-height: ${fontConfig.ingLineHeight}; font-weight: 500; display: flex; align-items: center; gap: 8px;">
               <span style="display:inline-block; width:${fontConfig.checkboxSize}; height:${fontConfig.checkboxSize}; border:1.5px solid #1B4332; border-radius:3px; flex-shrink:0;"></span>
@@ -2903,8 +2918,8 @@ ${separator}`;
 
     // Instructions list with dynamic font size
     let pdfStepNum = 1;
-    const instructionsHtml = selectedRecipe.instructions && selectedRecipe.instructions.length > 0
-      ? selectedRecipe.instructions.map((step) => {
+    const instructionsHtml = recipe.instructions && recipe.instructions.length > 0
+      ? recipe.instructions.map((step) => {
           if (isIngredientHeader(step)) {
             const headerTitle = cleanHeaderTitle(step);
             return `
@@ -2923,7 +2938,7 @@ ${separator}`;
         }).join("")
       : `<p style="font-style: italic; color: #666;">Žádný postup přípravy není zapsán.</p>`;
 
-    const htmlContent = `<!DOCTYPE html>
+    return `<!DOCTYPE html>
 <html lang="cs">
 <head>
   <meta charset="UTF-8">
@@ -3158,8 +3173,8 @@ ${separator}`;
         <span class="meta-brand">AI KUCHAŘKA • 5 PILÍŘOVÁ SYNTÉZA</span>
         <div style="display: flex; gap: 6px;">
           <span class="recipe-category">${category}</span>
-          <span class="portion-badge">Porce: ${scaleFactor === 1 ? "1x" : `${formatCzechNumber(scaleFactor)}x`}</span>
-          <span class="portion-badge">Písmo: ${paperFontSize === "normal" ? "Standard" : paperFontSize === "large" ? "Větší (+1)" : "Největší (+2)"}</span>
+          <span class="portion-badge">Porce: ${scale === 1 ? "1x" : `${formatCzechNumber(scale)}x`}</span>
+          <span class="portion-badge">Písmo: ${fontSizeMode === "normal" ? "Standard" : fontSizeMode === "large" ? "Větší (+1)" : "Největší (+2)"}</span>
         </div>
       </div>
       <h1 class="recipe-title">${title}</h1>
@@ -3193,7 +3208,7 @@ ${separator}`;
         </div>
         <div>
           <span class="param-label">Porce</span>
-          <span class="param-value">${scaleFactor === 1 ? "1x" : `${formatCzechNumber(scaleFactor)}x`}</span>
+          <span class="param-value">${scale === 1 ? "1x" : `${formatCzechNumber(scale)}x`}</span>
         </div>
       </div>
 
@@ -3227,6 +3242,27 @@ ${separator}`;
   </script>
 </body>
 </html>`;
+  };
+
+  const handlePrintRecipe = () => {
+    if (!selectedRecipe) return;
+
+    if (isIPadOrIOSDevice()) {
+      // In iOS/iPadOS Safari, popup windows (window.open) are blocked by default or fail to trigger AirPrint.
+      // Calling window.print() directly on the document triggers the native AirPrint dialog immediately!
+      try {
+        setPrintNotice("Otevírám dialog AirPrint tisku na iPadu...");
+        window.print();
+        setTimeout(() => setPrintNotice(null), 4000);
+        return;
+      } catch (err) {
+        console.warn("Direct window.print on iOS failed, falling back to AirPrint share:", err);
+        handleAirPrintShare();
+        return;
+      }
+    }
+
+    const htmlContent = buildRecipePrintHtml(selectedRecipe, scaleFactor, paperFontSize);
 
     let opened = false;
     try {
@@ -3256,6 +3292,67 @@ ${separator}`;
         window.print();
       }
     }
+  };
+
+  const handleAirPrintShare = async () => {
+    if (!selectedRecipe) return;
+
+    const title = selectedRecipe.title;
+    const cleanFilename = `${title.toLowerCase().replace(/[^a-z0-9à-ž]+/gi, "-")}-recept`;
+    const htmlContent = buildRecipePrintHtml(selectedRecipe, scaleFactor, paperFontSize);
+
+    // 1. Try Web Share API (native on iPadOS / iOS - exposes AirPrint in system share sheet)
+    if (typeof navigator !== "undefined" && typeof navigator.share === "function") {
+      try {
+        // Attempt file share first (iPadOS Safari presents the file and offers "Tisk" / AirPrint)
+        const blob = new Blob([htmlContent], { type: "text/html;charset=utf-8" });
+        const file = new File([blob], `${cleanFilename}.html`, { type: "text/html" });
+
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          setPrintNotice("Otevírám systémové sdílení na iPadu s volbou AirPrint tisku...");
+          await navigator.share({
+            title: `${title} - AI Kuchařka`,
+            text: `Recept: ${title}`,
+            files: [file],
+          });
+          setTimeout(() => setPrintNotice(null), 4000);
+          return;
+        }
+      } catch (fileErr: any) {
+        if (fileErr.name === "AbortError") {
+          return;
+        }
+        console.warn("File share not accepted, trying text share:", fileErr);
+      }
+
+      try {
+        // Fallback to text & URL share (iPadOS system sheet still presents "Tisk" / AirPrint)
+        const recipeText = generateRecipeText();
+        setPrintNotice("Otevírám systémové sdílení iPadu (AirPrint)...");
+        await navigator.share({
+          title: `${title} - AI Kuchařka`,
+          text: recipeText,
+          url: window.location.href,
+        });
+        setTimeout(() => setPrintNotice(null), 4000);
+        return;
+      } catch (textErr: any) {
+        if (textErr.name === "AbortError") {
+          return;
+        }
+        console.warn("Text share failed, falling back to direct print:", textErr);
+      }
+    }
+
+    // 2. Direct print fallback:
+    // On iPadOS Safari, calling window.print() directly on the active document opens the AirPrint dialog directly!
+    setPrintNotice("Spouštím přímý tisk AirPrint...");
+    try {
+      window.print();
+    } catch (e) {
+      console.error("Direct print failed:", e);
+    }
+    setTimeout(() => setPrintNotice(null), 4000);
   };
 
   const triggerNativePrint = handlePrintRecipe;
@@ -3461,14 +3558,25 @@ ${separator}`;
     }
   };
 
+  const formatFileSize = (bytes: number): string => {
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+  };
+
   const processFile = (file: File) => {
-    if (file.size > 12 * 1024 * 1024) {
-      setErrorMessage("Soubor je příliš velký (limit je 12 MB). Zvolte prosím menší soubor.");
+    if (file.size > 15 * 1024 * 1024) {
+      const err = "Soubor je příliš velký (limit je 15 MB). Zvolte prosím menší soubor.";
+      setErrorMessage(err);
+      setAddFormError(err);
       return;
     }
 
     setFileName(file.name);
-    setMimeType(file.type);
+    setMimeType(file.type || "application/octet-stream");
+    setFileSize(formatFileSize(file.size));
+    setErrorMessage(null);
+    setAddFormError(null);
     
     const reader = new FileReader();
     reader.onload = (event) => {
@@ -3477,12 +3585,14 @@ ${separator}`;
       }
     };
     reader.onerror = () => {
-      setErrorMessage("Nepodařilo se přečíst nahraný soubor.");
+      const err = "Nepodařilo se přečíst nahraný soubor.";
+      setErrorMessage(err);
+      setAddFormError(err);
     };
     reader.readAsDataURL(file);
   };
 
-  // Drag and drop handlers
+  // Drag and drop handlers for admin panel
   const handleDrag = (e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -3503,12 +3613,37 @@ ${separator}`;
     }
   };
 
+  // Drag and drop handlers for AI recipe creation modal
+  const handleModalDrag = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.type === "dragenter" || e.type === "dragover") {
+      setModalDragActive(true);
+    } else if (e.type === "dragleave") {
+      setModalDragActive(false);
+    }
+  };
+
+  const handleModalDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setModalDragActive(false);
+
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      processFile(e.dataTransfer.files[0]);
+    }
+  };
+
   const removeFile = () => {
     setFileData(null);
     setFileName(null);
     setMimeType(null);
+    setFileSize(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
+    }
+    if (modalFileInputRef.current) {
+      modalFileInputRef.current.value = "";
     }
   };
 
@@ -4459,7 +4594,7 @@ ${separator}`;
                       initial={{ opacity: 0, height: 0 }}
                       animate={{ opacity: 1, height: "auto" }}
                       exit={{ opacity: 0, height: 0 }}
-                      className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl mb-6 space-y-5 overflow-hidden text-slate-100"
+                      className="no-print bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl mb-6 space-y-5 overflow-hidden text-slate-100"
                     >
                       <div className="flex items-center justify-between border-b border-slate-800 pb-4">
                         <div className="flex items-center gap-2.5">
@@ -5321,6 +5456,17 @@ ${separator}`;
                           <Printer className="h-4 w-4 shrink-0" />
                           <span>Tisk</span>
                         </button>
+
+                        {/* 5. AirPrint sdílení */}
+                        <button
+                          type="button"
+                          onClick={handleAirPrintShare}
+                          className="bg-[#0284C7] hover:bg-[#0369A1] text-white font-bold py-2.5 px-4 rounded-xl text-xs transition-all flex items-center gap-1.5 shadow-sm cursor-pointer hover:shadow-md active:scale-95 whitespace-nowrap"
+                          title="Vyvolat na iPadu systémové sdílení AirPrint pro bezdrátový tisk nebo odeslání"
+                        >
+                          <Share className="h-4 w-4 shrink-0" />
+                          <span>AirPrint sdílení</span>
+                        </button>
                       </div>
                     </div>
 
@@ -5612,6 +5758,17 @@ ${separator}`;
                         >
                           <Printer className="h-3.5 w-3.5" />
                           <span>Tisknout</span>
+                        </button>
+
+                        {/* AirPrint / Sdílet */}
+                        <button
+                          type="button"
+                          onClick={handleAirPrintShare}
+                          className="flex items-center gap-1.5 bg-[#0284C7] hover:bg-[#0369A1] text-white px-3 py-1.5 rounded-xl font-sans font-bold text-xs transition-all cursor-pointer shadow-md active:scale-95 whitespace-nowrap"
+                          title="Vyvolat na iPadu systémové sdílení AirPrint pro bezdrátový tisk a odeslání"
+                        >
+                          <Share className="h-3.5 w-3.5" />
+                          <span>AirPrint sdílení</span>
                         </button>
                       </div>
 
@@ -6205,7 +6362,7 @@ ${separator}`;
                       {/* Multimodal Drag-and-Drop Area */}
                       <div className="space-y-2">
                         <label className="block text-xs font-bold text-[#1B4332] uppercase tracking-wider">
-                          Nahrát fotku receptu nebo PDF dokument (Volitelné)
+                          Nahrát fotku receptu, textový soubor nebo PDF dokument (Volitelné)
                         </label>
                         
                         <div
@@ -6223,26 +6380,35 @@ ${separator}`;
                           <input
                             ref={fileInputRef}
                             type="file"
-                            accept="image/jpeg,image/png,image/webp,application/pdf"
+                            accept="image/*,application/pdf,text/*,.txt,.md,.markdown,.csv,.json,.rtf,.doc,.docx"
                             onChange={handleFileChange}
                             className="hidden"
                           />
 
                           {fileName ? (
-                            <div className="flex items-center gap-2 bg-[#F0F4F1] border border-[#2D6A4F]/20 py-1.5 px-3 rounded-lg text-[#1B4332] font-semibold text-xs relative animate-pulse">
-                              {mimeType?.includes("pdf") ? (
-                                <FileText className="h-4 w-4 text-[#2D6A4F]" />
+                            <div className="flex items-center gap-3 bg-[#F0F4F1] border border-[#2D6A4F]/20 py-2 px-3 rounded-xl text-[#1B4332] font-semibold text-xs relative">
+                              {mimeType?.startsWith("image/") || /\.(jpe?g|png|webp|gif|svg|bmp|heic|heif)$/i.test(fileName || "") ? (
+                                <img
+                                  src={fileData || ""}
+                                  alt={fileName}
+                                  className="h-10 w-10 object-cover rounded-lg border border-emerald-300 shadow-2xs"
+                                />
+                              ) : mimeType?.includes("pdf") || (fileName || "").toLowerCase().endsWith(".pdf") ? (
+                                <FileText className="h-5 w-5 text-red-600 shrink-0" />
                               ) : (
-                                <FileImage className="h-4 w-4 text-[#2D6A4F]" />
+                                <FileText className="h-5 w-5 text-blue-600 shrink-0" />
                               )}
-                              <span className="max-w-[200px] truncate">{fileName}</span>
+                              <div className="text-left">
+                                <span className="max-w-[200px] truncate block font-bold">{fileName}</span>
+                                {fileSize && <span className="text-[10px] text-slate-500">{fileSize}</span>}
+                              </div>
                               <button
                                 type="button"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   removeFile();
                                 }}
-                                className="bg-[#2D6A4F]/10 hover:bg-[#2D6A4F]/20 rounded-full p-0.5 text-[#1B4332] ml-1 transition-all"
+                                className="bg-[#2D6A4F]/10 hover:bg-[#2D6A4F]/20 rounded-full p-1 text-[#1B4332] ml-2 transition-all cursor-pointer"
                                 title="Odebrat přílohu"
                               >
                                 <X className="h-3.5 w-3.5" />
@@ -6255,7 +6421,7 @@ ${separator}`;
                               </div>
                               <div>
                                 <p className="text-xs font-bold text-[#4A4A40]">Přetáhněte sem obrázek nebo klikněte</p>
-                                <p className="text-[10px] text-[#9A9A8C] mt-0.5">Podpora JPEG, PNG, WEBP a PDF (max 12 MB) pro vizuální rozbor</p>
+                                <p className="text-[10px] text-[#9A9A8C] mt-0.5">Podpora obrázků (JPEG, PNG, WEBP), textových souborů (.txt, .md) a PDF (max 15 MB)</p>
                               </div>
                             </>
                           )}
@@ -8086,13 +8252,13 @@ ${separator}`;
               {/* TAB 2: AI GENERATOR */}
               {addRecipeTab === "ai" && (
                 <form id="add-recipe-ai-form" onSubmit={handleGenerateAiModalRecipe} className="space-y-5">
-                  <div className="bg-amber-50/60 border border-amber-200/80 rounded-2xl p-4 sm:p-5 text-amber-900 text-xs space-y-2">
+                  <div className="bg-gradient-to-r from-amber-50/90 via-emerald-50/40 to-amber-50/90 border border-amber-200/80 rounded-2xl p-4 sm:p-5 text-amber-900 text-xs space-y-2">
                     <div className="flex items-center gap-2 font-bold text-sm text-[#D97706]">
                       <Sparkles className="h-4 w-4" />
-                      <span>Kulinářský AI generátor receptů</span>
+                      <span>Kulinářský AI generátor a digitalizátor receptů</span>
                     </div>
                     <p className="leading-relaxed text-slate-700">
-                      Napište jakékoliv neuspořádané zápisky, seznam surovin nebo myšlenku. Umělá inteligence z nich vytvoří kompletní, vědecky ověřený recept se všemi náležitostmi a časovými údaji.
+                      Nahrajte fotku receptu, screenshot, kuchařku, PDF dokument nebo textový soubor (.txt, .md). Můžete také připsat vlastní poznámky nebo zadat recept pouze textem. Umělá inteligence Gemini z nich vytvoří kompletní, vědecky ověřený recept se všemi povinnými časy u procesních kroků.
                     </p>
                   </div>
 
@@ -8108,7 +8274,9 @@ ${separator}`;
                           Probíhá generování receptu přes AI
                         </h4>
                         <p className="text-xs text-emerald-100/80 mt-1 font-medium max-w-sm mx-auto">
-                          Kulinářský model Gemini 3.1 Pro zpracovává zadání a dopočítává časy u všech kroků postupu.
+                          {fileName
+                            ? `Kulinářský model Gemini zpracovává přiložený soubor "${fileName}" a sestavuje recept.`
+                            : "Kulinářský model Gemini zpracovává zadání a dopočítává časy u všech kroků postupu."}
                         </p>
                       </div>
 
@@ -8133,17 +8301,178 @@ ${separator}`;
                       </div>
                     </div>
                   ) : (
-                    <div className="space-y-2">
-                      <label className="block text-xs font-bold text-[#1B4332] uppercase tracking-wider">
-                        Zadejte popis nebo zápisky receptu
-                      </label>
-                      <textarea
-                        rows={6}
-                        value={addAiText}
-                        onChange={(e) => setAddAiText(e.target.value)}
-                        placeholder="Např.: 'Mám vepřovou panenku, sušenou šunku, šalvěj a bílé víno. Chci připravit rychlou večeři v remosce nebo na pánvi.'"
-                        className="w-full text-sm p-4 border border-[#E8E8E1] rounded-xl bg-white text-[#2C2C2C] focus:outline-hidden focus:ring-1 focus:ring-[#1B4332]"
-                      />
+                    <div className="space-y-5">
+                      {/* Multimodal Attachment Dropzone / File Picker */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-xs font-bold text-[#1B4332] uppercase tracking-wider">
+                            Vložit soubor, obrázek nebo dokument receptu
+                          </label>
+                          <span className="text-[11px] text-slate-500 font-medium">
+                            {fileName ? "1 soubor přiložen" : "Volitelné (obrázek, text, PDF)"}
+                          </span>
+                        </div>
+
+                        <input
+                          ref={modalFileInputRef}
+                          type="file"
+                          accept="image/*,application/pdf,text/*,.txt,.md,.markdown,.csv,.json,.rtf,.doc,.docx"
+                          onChange={handleFileChange}
+                          className="hidden"
+                        />
+
+                        {fileData ? (
+                          /* Active File Attachment Card */
+                          <div className="bg-emerald-50/70 border-2 border-[#1B4332]/30 rounded-2xl p-4 shadow-2xs transition-all flex flex-col sm:flex-row items-center justify-between gap-4">
+                            <div className="flex items-center gap-3.5 w-full sm:w-auto min-w-0">
+                              {mimeType?.startsWith("image/") || /\.(jpe?g|png|webp|gif|svg|bmp|heic|heif)$/i.test(fileName || "") ? (
+                                <div className="relative group shrink-0">
+                                  <img
+                                    src={fileData}
+                                    alt={fileName || "Náhled přílohy"}
+                                    className="h-16 w-16 sm:h-20 sm:w-20 object-cover rounded-xl border border-emerald-200 shadow-sm"
+                                  />
+                                  <div className="absolute inset-0 bg-black/10 rounded-xl pointer-events-none" />
+                                </div>
+                              ) : mimeType?.includes("pdf") || (fileName || "").toLowerCase().endsWith(".pdf") ? (
+                                <div className="h-16 w-16 sm:h-20 sm:w-20 rounded-xl bg-red-100 border border-red-200 flex flex-col items-center justify-center text-red-600 shrink-0">
+                                  <FileText className="h-8 w-8 stroke-[1.75]" />
+                                  <span className="text-[10px] font-bold mt-1 tracking-wider uppercase">PDF</span>
+                                </div>
+                              ) : (
+                                <div className="h-16 w-16 sm:h-20 sm:w-20 rounded-xl bg-blue-100 border border-blue-200 flex flex-col items-center justify-center text-blue-700 shrink-0">
+                                  <FileText className="h-8 w-8 stroke-[1.75]" />
+                                  <span className="text-[10px] font-bold mt-1 tracking-wider uppercase">TEXT</span>
+                                </div>
+                              )}
+
+                              <div className="min-w-0 flex-1 space-y-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#1B4332] text-white">
+                                    <Sparkles className="h-3 w-3 text-amber-300" />
+                                    {mimeType?.startsWith("image/") || /\.(jpe?g|png|webp|gif|svg|bmp|heic|heif)$/i.test(fileName || "")
+                                      ? "Obrázek (AI Vision)"
+                                      : mimeType?.includes("pdf") || (fileName || "").toLowerCase().endsWith(".pdf")
+                                      ? "PDF dokument"
+                                      : "Textový soubor"}
+                                  </span>
+                                  {fileSize && (
+                                    <span className="text-[11px] font-semibold text-slate-500">
+                                      {fileSize}
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="text-xs sm:text-sm font-bold text-slate-800 truncate" title={fileName || ""}>
+                                  {fileName}
+                                </p>
+                                <p className="text-[11px] text-slate-600">
+                                  Gemini vytěží z tohoto souboru kompletní suroviny a časově přesný postup.
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 w-full sm:w-auto justify-end shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => modalFileInputRef.current?.click()}
+                                className="px-3.5 py-2 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 transition-all cursor-pointer shadow-2xs"
+                              >
+                                Změnit soubor
+                              </button>
+                              <button
+                                type="button"
+                                onClick={removeFile}
+                                className="p-2 bg-red-100 hover:bg-red-200 text-red-700 border border-red-200 rounded-xl transition-all cursor-pointer"
+                                title="Odebrat soubor"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          /* Empty Dropzone State */
+                          <div
+                            onDragEnter={handleModalDrag}
+                            onDragOver={handleModalDrag}
+                            onDragLeave={handleModalDrag}
+                            onDrop={handleModalDrop}
+                            onClick={() => modalFileInputRef.current?.click()}
+                            className={`border-2 border-dashed rounded-2xl p-6 sm:p-7 text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-3 select-none ${
+                              modalDragActive
+                                ? "border-[#1B4332] bg-emerald-50/80 ring-4 ring-emerald-200/50 scale-[1.01]"
+                                : "border-slate-300 hover:border-[#1B4332]/60 bg-amber-50/20 hover:bg-amber-50/50 shadow-2xs"
+                            }`}
+                          >
+                            <div className="flex items-center justify-center gap-2 text-slate-600">
+                              <div className="p-3 bg-amber-100 text-amber-800 rounded-2xl shadow-2xs">
+                                <FileImage className="h-6 w-6 stroke-[2]" />
+                              </div>
+                              <div className="p-3 bg-emerald-100 text-[#1B4332] rounded-2xl shadow-2xs -ml-2">
+                                <FileText className="h-6 w-6 stroke-[2]" />
+                              </div>
+                              <div className="p-3 bg-white border border-slate-200 text-slate-700 rounded-2xl shadow-2xs -ml-2">
+                                <Upload className="h-6 w-6 stroke-[2]" />
+                              </div>
+                            </div>
+
+                            <div className="space-y-1">
+                              <p className="text-xs sm:text-sm font-bold text-slate-800">
+                                Přetáhněte sem obrázek nebo jakýkoliv vlastní soubor
+                              </p>
+                              <p className="text-xs text-slate-600 max-w-md mx-auto">
+                                Nebo klikněte a vyberte soubor ze svého zařízení (fotku kuchařky, screenshot z mobilu, PDF nebo textový soubor .txt / .md).
+                              </p>
+                            </div>
+
+                            <div className="flex flex-wrap items-center justify-center gap-2 pt-1 text-[11px]">
+                              <span className="px-2.5 py-1 bg-white border border-slate-200 text-slate-600 rounded-lg font-semibold shadow-2xs">
+                                📷 Fotka / Screenshot
+                              </span>
+                              <span className="px-2.5 py-1 bg-white border border-slate-200 text-slate-600 rounded-lg font-semibold shadow-2xs">
+                                📄 Textový soubor (.txt, .md)
+                              </span>
+                              <span className="px-2.5 py-1 bg-white border border-slate-200 text-slate-600 rounded-lg font-semibold shadow-2xs">
+                                📑 PDF dokument
+                              </span>
+                            </div>
+
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                modalFileInputRef.current?.click();
+                              }}
+                              className="mt-1 px-4 py-2 bg-white hover:bg-slate-50 border border-slate-300 text-[#1B4332] text-xs font-bold rounded-xl shadow-2xs transition-all cursor-pointer flex items-center gap-2"
+                            >
+                              <Upload className="h-3.5 w-3.5 text-[#D97706]" />
+                              <span>Vybrat soubor ze zařízení</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Text Input Area */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-xs font-bold text-[#1B4332] uppercase tracking-wider">
+                            Popis receptu, suroviny nebo dodatečné pokyny
+                          </label>
+                          <span className="text-[11px] text-slate-500 font-medium">
+                            {fileData ? "Volitelné (upřesnění k souboru)" : "Povinné bez souboru"}
+                          </span>
+                        </div>
+                        <textarea
+                          rows={4}
+                          value={addAiText}
+                          onChange={(e) => setAddAiText(e.target.value)}
+                          placeholder={
+                            fileData
+                              ? "Sem můžete napsat dodatečná přání k souboru (např. 'Uprav pro 4 osoby', 'vynech cibuli', 'chci péct v remosce')..."
+                              : "Sem napište své zápisky, seznam surovin nebo nápad (např. 'vepřová panenka, brambory na rozmarýnu, česnek, smetana, rychlá večeře')..."
+                          }
+                          className="w-full text-sm p-4 border border-[#E8E8E1] rounded-xl bg-white text-[#2C2C2C] focus:outline-hidden focus:ring-1 focus:ring-[#1B4332]"
+                        />
+                      </div>
                     </div>
                   )}
                 </form>
