@@ -80,7 +80,9 @@ function getAi() {
   return process.env.GEMINI_API_KEY
     ? new GoogleGenAI({
         apiKey: process.env.GEMINI_API_KEY,
+        apiVersion: "v1beta",
         httpOptions: {
+          apiVersion: "v1beta",
           headers: {
             "User-Agent": "aistudio-build",
           },
@@ -111,7 +113,14 @@ async function generateContentWithRetry(ai: GoogleGenAI, config: any, retries = 
   let lastError: any = null;
 
   for (const modelName of GEMINI_MODELS) {
-    const currentConfig = { ...config, model: modelName };
+    const isGemini3Or4 = modelName.startsWith("gemini-4") || modelName.startsWith("gemini-3");
+    const effectiveInnerConfig = isGemini3Or4
+      ? {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          ...(config.config || {}),
+        }
+      : config.config;
+    const currentConfig = { ...config, model: modelName, config: effectiveInnerConfig };
     for (let i = 0; i < retries; i++) {
       try {
         return await ai.models.generateContent(currentConfig);
