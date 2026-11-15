@@ -53,7 +53,11 @@ import {
   Type,
   Home,
   Activity,
-  Share
+  Share,
+  MessageSquare,
+  Send,
+  Camera,
+  Paperclip
 } from "lucide-react";
 import { Recipe } from "./types";
 import { DEFAULT_RECIPES } from "./defaultRecipes";
@@ -764,7 +768,7 @@ export default function App() {
 
   // States for Add New Recipe Modal Window
   const [showAddRecipeModal, setShowAddRecipeModal] = useState(false);
-  const [addRecipeTab, setAddRecipeTab] = useState<"manual" | "ai">("manual");
+  const [addRecipeTab, setAddRecipeTab] = useState<"manual" | "ai">("ai");
   const [addTitle, setAddTitle] = useState("");
   const [addCategory, setAddCategory] = useState("Maso");
   const [addCookingTime, setAddCookingTime] = useState("");
@@ -788,6 +792,28 @@ export default function App() {
   const [isGeneratingAiModal, setIsGeneratingAiModal] = useState(false);
   const [aiModalProgressPercent, setAiModalProgressPercent] = useState(0);
   const [aiModalProgressText, setAiModalProgressText] = useState("");
+
+  // Gemini Chat states for recipe creation (5-pillar proposal + confirmation)
+  type RecipeChatMessage = {
+    id: string;
+    role: "user" | "model";
+    text: string;
+    attachment?: {
+      fileName: string;
+      mimeType: string;
+      fileSize?: string;
+      isImage?: boolean;
+      previewUrl?: string;
+    };
+    proposedRecipe?: Recipe | null;
+  };
+  const [chatMessages, setChatMessages] = useState<RecipeChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [isChatLoading, setIsChatLoading] = useState(false);
+  const [chatDraftRecipe, setChatDraftRecipe] = useState<Recipe | null>(null);
+  const [isConfirmingChatRecipe, setIsConfirmingChatRecipe] = useState(false);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  const modalCameraInputRef = useRef<HTMLInputElement | null>(null);
 
   const defaultCategories = useMemo(() => ["Maso", "Pečivo", "Polévky", "Sladká jídla a moučníky", "Ostatní"], []);
 
@@ -1278,6 +1304,7 @@ export default function App() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "x-admin-password": adminPassword,
         },
         body: JSON.stringify({
           recipe: recipeToAudit,
@@ -1341,7 +1368,11 @@ export default function App() {
     }
   };
 
-  const handleAcceptAuditChange = () => {
+  const handleAcceptAuditChange = async () => {
+    if (!isAdmin) {
+      navigateToLoginModal();
+      return;
+    }
     if (!selectedRecipe || !auditModifiedRecipe) return;
     
     // Create a copy of the selected recipe
@@ -1376,7 +1407,7 @@ export default function App() {
 
     // Replace recipe with the modified one
     const updatedRecipesList = recipes.map(r => r.id === selectedRecipe.id ? stampedRecipe : r);
-    saveRecipesToStorage(updatedRecipesList, stampedRecipe);
+    await saveRecipesToStorage(updatedRecipesList, stampedRecipe);
     setSelectedRecipe(stampedRecipe);
     
     // Clear audit panel state after accepting
@@ -1484,6 +1515,10 @@ export default function App() {
   };
 
   const navigateToEditRecipe = (pushHistory = true) => {
+    if (!isAdmin) {
+      navigateToLoginModal();
+      return;
+    }
     if (!selectedRecipe) return;
     if (pushHistory && !isPoppingStateRef.current) {
       window.history.pushState(
@@ -1496,11 +1531,15 @@ export default function App() {
     setIsEditing(true);
   };
 
-  const navigateToAddRecipeModal = (pushHistory = true) => {
+  const navigateToAddRecipeModal = (pushHistory = true, defaultTab: "ai" | "manual" = "ai") => {
+    if (!isAdmin) {
+      navigateToLoginModal();
+      return;
+    }
     if (pushHistory && !isPoppingStateRef.current) {
       window.history.pushState({ type: "add-recipe", stepIdx: ++historyStepCountRef.current }, "", "#novy-recept");
     }
-    handleOpenAddRecipeModal();
+    handleOpenAddRecipeModal(defaultTab);
   };
 
   const navigateToCartModal = (pushHistory = true) => {
@@ -1511,6 +1550,10 @@ export default function App() {
   };
 
   const navigateToAdminSettingsModal = (pushHistory = true) => {
+    if (!isAdmin) {
+      navigateToLoginModal();
+      return;
+    }
     if (pushHistory && !isPoppingStateRef.current) {
       window.history.pushState({ type: "admin", stepIdx: ++historyStepCountRef.current }, "", "#administrace");
     }
@@ -1519,6 +1562,10 @@ export default function App() {
   };
 
   const navigateToCategoryEditorModal = (pushHistory = true) => {
+    if (!isAdmin) {
+      navigateToLoginModal();
+      return;
+    }
     if (pushHistory && !isPoppingStateRef.current) {
       window.history.pushState({ type: "categories", stepIdx: ++historyStepCountRef.current }, "", "#kategorie");
     }
@@ -1740,6 +1787,10 @@ export default function App() {
 
   const handleSaveEditedRecipe = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
+    if (!isAdmin) {
+      navigateToLoginModal();
+      return;
+    }
     if (!selectedRecipe) return;
     
     setIsSavingRecipe(true);
@@ -1763,8 +1814,11 @@ export default function App() {
     try {
       const response = await fetch("/api/calculate-nutrition", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recipe: updatedRecipe }),
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-password": adminPassword,
+        },
+        body: JSON.stringify({ recipe: updatedRecipe, adminPassword }),
       });
       if (response.ok) {
         updatedRecipe.nutritionPer100g = await response.json();
@@ -1774,7 +1828,7 @@ export default function App() {
     }
 
     const updatedRecipesList = recipes.map(r => r.id === selectedRecipe.id ? updatedRecipe : r);
-    saveRecipesToStorage(updatedRecipesList, updatedRecipe);
+    await saveRecipesToStorage(updatedRecipesList, updatedRecipe);
     setSelectedRecipe(updatedRecipe);
     setIsEditing(false);
     setIsSavingRecipe(false);
@@ -1830,6 +1884,7 @@ export default function App() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "x-admin-password": adminPassword,
         },
         body: JSON.stringify({
           recipe: selectedRecipe,
@@ -1915,7 +1970,11 @@ export default function App() {
   };
 
   // Handlers for Add Recipe Modal
-  const handleOpenAddRecipeModal = () => {
+  const handleOpenAddRecipeModal = (defaultTab: "ai" | "manual" = "ai") => {
+    if (!isAdmin) {
+      navigateToLoginModal();
+      return;
+    }
     setAddTitle("");
     setAddCategory("Maso");
     setAddCookingTime("");
@@ -1936,8 +1995,13 @@ export default function App() {
     setAddExpertJustification("");
     setAddFormError(null);
     setAddAiText("");
+    setChatMessages([]);
+    setChatInput("");
+    setChatDraftRecipe(null);
+    setIsChatLoading(false);
+    setIsConfirmingChatRecipe(false);
     removeFile();
-    setAddRecipeTab("manual");
+    setAddRecipeTab(defaultTab);
     setShowAddRecipeModal(true);
   };
 
@@ -1975,6 +2039,10 @@ export default function App() {
 
   const handleSaveManualRecipe = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isAdmin) {
+      navigateToLoginModal();
+      return;
+    }
     setAddFormError(null);
 
     if (!addTitle.trim()) {
@@ -2031,8 +2099,11 @@ export default function App() {
     try {
       const response = await fetch("/api/calculate-nutrition", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recipe: newRecipe }),
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-password": adminPassword,
+        },
+        body: JSON.stringify({ recipe: newRecipe, adminPassword }),
       });
       if (response.ok) {
         newRecipe.nutritionPer100g = await response.json();
@@ -2042,19 +2113,179 @@ export default function App() {
     }
 
     const updatedRecipes = [newRecipe, ...recipes];
-    saveRecipesToStorage(updatedRecipes, newRecipe);
+    const savedOnline = await saveRecipesToStorage(updatedRecipes, newRecipe);
     setSelectedRecipe(newRecipe);
     setShowAddRecipeModal(false);
     setIsSavingRecipe(false);
     
-    setToast({
-      title: "Recept byl vytvořen!",
-      message: `Nový recept "${newRecipe.title}" byl úspěšně uložen do vaší kuchařky.`
-    });
+    if (savedOnline) {
+      const toastId = Date.now().toString();
+      setToast({
+        id: toastId,
+        title: "Recept byl vytvořen!",
+        message: `Nový recept "${newRecipe.title}" byl úspěšně uložen do databáze kuchařky.`,
+        type: "success"
+      });
+      setTimeout(() => {
+        setToast(prev => (prev && prev.id === toastId ? null : prev));
+      }, 5000);
+    }
+  };
+
+  useEffect(() => {
+    if (chatScrollRef.current) {
+      chatScrollRef.current.scrollTop = chatScrollRef.current.scrollHeight;
+    }
+  }, [chatMessages, isChatLoading, chatDraftRecipe]);
+
+  const handleSendChatMessage = async (overrideText?: string) => {
+    if (!isAdmin) {
+      navigateToLoginModal();
+      return;
+    }
+
+    const textToSend = (overrideText !== undefined ? overrideText : chatInput).trim();
+    if (!textToSend && !fileData) {
+      setAddFormError("Napište zprávu pro Gemini nebo přiložte obrázek / soubor.");
+      return;
+    }
+
+    setAddFormError(null);
+    const stagedFileData = fileData;
+    const stagedFileName = fileName;
+    const stagedMimeType = mimeType;
+    const stagedFileSize = fileSize;
+
+    const isImg = Boolean(
+      stagedMimeType?.startsWith("image/") ||
+        /\.(jpe?g|png|webp|gif|svg|bmp|heic|heif)$/i.test(stagedFileName || "")
+    );
+
+    const newUserMsg: RecipeChatMessage = {
+      id: `u-${Date.now()}`,
+      role: "user",
+      text: textToSend || (stagedFileName ? `Prosím analyzuj přiložený soubor "${stagedFileName}" podle 5 pilířů.` : ""),
+      attachment: stagedFileName
+        ? {
+            fileName: stagedFileName,
+            mimeType: stagedMimeType || "application/octet-stream",
+            fileSize: stagedFileSize || undefined,
+            isImage: isImg,
+            previewUrl: isImg && stagedFileData ? stagedFileData : undefined,
+          }
+        : undefined,
+    };
+
+    const nextMessages = [...chatMessages, newUserMsg];
+    setChatMessages(nextMessages);
+    if (overrideText === undefined) setChatInput("");
+    removeFile();
+    setIsChatLoading(true);
+
+    try {
+      const apiMessages = nextMessages.map((m, idx) => {
+        const isLast = idx === nextMessages.length - 1;
+        return {
+          role: m.role,
+          text: m.text,
+          fileName: m.attachment?.fileName,
+          mimeType: m.attachment?.mimeType,
+          fileData: isLast ? stagedFileData : undefined,
+        };
+      });
+
+      const response = await fetch("/api/recipe-chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-password": adminPassword,
+        },
+        body: JSON.stringify({
+          messages: apiMessages,
+          currentDraftRecipe: chatDraftRecipe,
+          adminPassword,
+        }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `Chyba serveru (${response.status}).`);
+      }
+
+      const data = await response.json();
+      const proposed: Recipe | null = data.recipe || null;
+      if (proposed) {
+        setChatDraftRecipe(proposed);
+      }
+
+      const modelMsg: RecipeChatMessage = {
+        id: `m-${Date.now()}`,
+        role: "model",
+        text: data.reply || "Připravil jsem návrh receptu podle pěti pilířů.",
+        proposedRecipe: proposed,
+      };
+      setChatMessages((prev) => [...prev, modelMsg]);
+    } catch (err: any) {
+      console.error(err);
+      setAddFormError(err.message || "Chyba při komunikaci s Gemini chatem.");
+    } finally {
+      setIsChatLoading(false);
+    }
+  };
+
+  const handleConfirmChatRecipe = async () => {
+    if (!isAdmin) {
+      navigateToLoginModal();
+      return;
+    }
+    if (!chatDraftRecipe) return;
+
+    setIsConfirmingChatRecipe(true);
+    setAddFormError(null);
+    try {
+      const finalRecipe: Recipe = {
+        ...chatDraftRecipe,
+        id: chatDraftRecipe.id || "recipe-ai-" + Date.now(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      const updatedRecipes = [
+        finalRecipe,
+        ...recipes.filter((r) => r.id !== finalRecipe.id),
+      ];
+      const savedOnline = await saveRecipesToStorage(updatedRecipes, finalRecipe);
+      setSelectedRecipe(finalRecipe);
+      setShowAddRecipeModal(false);
+      setChatMessages([]);
+      setChatDraftRecipe(null);
+      setChatInput("");
+      removeFile();
+
+      if (savedOnline) {
+        const toastId = Date.now().toString();
+        setToast({
+          id: toastId,
+          title: "Recept uložen do databáze!",
+          message: `Recept "${finalRecipe.title}" byl potvrzen a uložen do vaší kuchařky.`,
+          type: "success",
+        });
+        setTimeout(() => {
+          setToast(prev => (prev && prev.id === toastId ? null : prev));
+        }, 5000);
+      }
+    } catch (err: any) {
+      setAddFormError(err.message || "Nepodařilo se uložit recept do databáze.");
+    } finally {
+      setIsConfirmingChatRecipe(false);
+    }
   };
 
   const handleGenerateAiModalRecipe = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isAdmin) {
+      navigateToLoginModal();
+      return;
+    }
     if (!addAiText.trim() && !fileData) {
       setAddFormError("Prosím vložte soubor (obrázek, textový soubor, PDF) nebo napište popis receptu.");
       return;
@@ -2085,7 +2316,10 @@ export default function App() {
     try {
       const response = await fetch("/api/enhance-recipe", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "x-admin-password": adminPassword,
+        },
         body: JSON.stringify({
           rawText: addAiText,
           fileData,
@@ -2117,15 +2351,21 @@ export default function App() {
       };
 
       const updatedRecipes = [newRecipe, ...recipes];
-      saveRecipesToStorage(updatedRecipes, newRecipe);
+      await saveRecipesToStorage(updatedRecipes, newRecipe);
       setSelectedRecipe(newRecipe);
       setShowAddRecipeModal(false);
       removeFile();
       setAddAiText("");
+      const toastId = Date.now().toString();
       setToast({
+        id: toastId,
         title: "AI Recept vytvořen!",
-        message: `Recept "${newRecipe.title}" byl vygenerován a uložen do kuchařky.`
+        message: `Recept "${newRecipe.title}" byl vygenerován a uložen do kuchařky.`,
+        type: "success"
       });
+      setTimeout(() => {
+        setToast(prev => (prev && prev.id === toastId ? null : prev));
+      }, 5000);
     } catch (err: any) {
       console.error(err);
       setAddFormError(err.message || "Chyba při komunikaci s AI serverem.");
@@ -2226,7 +2466,8 @@ export default function App() {
       setDiagnosticsStepIndex(2);
 
       const headers: Record<string, string> = {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "x-admin-password": adminPassword,
       };
       const storedUser = localStorage.getItem("ai_kucharka_github_username") || "ambrus-k";
       const storedRepo = localStorage.getItem("ai_kucharka_github_repo") || "ai-kucharka";
@@ -3372,11 +3613,27 @@ ${separator}`;
 
   // Load admin state and recipes (dynamic remote URL with local storage fallbacks)
   useEffect(() => {
-    // Load admin state from localStorage
+    // Load and verify admin state from localStorage against backend
     const savedAdminToken = localStorage.getItem("admin_password_token");
     if (savedAdminToken) {
-      setIsAdmin(true);
-      setAdminPassword(savedAdminToken);
+      fetch("/api/verify-admin", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ adminPassword: savedAdminToken }),
+      })
+        .then((res) => {
+          if (res.ok) {
+            setIsAdmin(true);
+            setAdminPassword(savedAdminToken);
+          } else if (res.status === 401 || res.status === 403) {
+            localStorage.removeItem("admin_password_token");
+            setIsAdmin(false);
+            setAdminPassword("");
+          }
+        })
+        .catch(() => {
+          // Offline fallback: do not grant unverified admin rights if server unreachable
+        });
     }
 
     
@@ -3485,15 +3742,20 @@ ${separator}`;
     loadRecipes();
   }, []);
 
-  // Save recipes to localStorage whenever they change
-  const saveRecipesToStorage = async (newRecipes: Recipe[], targetRecipe?: Recipe, isDelete = false) => {
+  // Save recipes to localStorage and Firestore via /api/recipes
+  const saveRecipesToStorage = async (newRecipes: Recipe[], targetRecipe?: Recipe, isDelete = false): Promise<boolean> => {
     const cleaned = newRecipes.map(removePreservativesFromSoup);
     setRecipes(cleaned);
     localStorage.setItem("ai_kucharka_recipes", JSON.stringify(cleaned));
 
+    if (!isAdmin || !adminPassword) {
+      return false;
+    }
+
     try {
       const headers: Record<string, string> = {
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "x-admin-password": adminPassword,
       };
 
       const storedUser = localStorage.getItem("ai_kucharka_github_username") || "ambrus-k";
@@ -3506,19 +3768,51 @@ ${separator}`;
       if (storedBranch) headers["x-github-branch"] = storedBranch;
       if (storedToken) headers["x-github-token"] = storedToken;
 
+      const cleanedTarget = targetRecipe ? removePreservativesFromSoup(targetRecipe) : undefined;
+      const payloadBody = cleanedTarget
+        ? isDelete
+          ? { deleteId: cleanedTarget.id, adminPassword }
+          : { recipe: cleanedTarget, adminPassword }
+        : { recipes: cleaned, adminPassword };
+
       const response = await fetch("/api/recipes", {
         method: "POST",
         headers,
-        body: JSON.stringify({ recipes: cleaned, adminPassword })
+        body: JSON.stringify(payloadBody),
       });
+
       if (response.ok) {
-        console.log("Změny kuchařky byly automaticky uloženy online!");
+        console.log("Změny kuchařky byly automaticky uloženy do databáze!");
+        return true;
       } else {
         const errData = await response.json().catch(() => ({}));
-        console.warn(`Chyba ukládání online (Status: ${response.status}):`, errData.error || "");
+        const msg = errData.error || `Server vrátil chybu ${response.status}.`;
+        console.warn(`Chyba ukládání online (Status: ${response.status}):`, msg);
+        const toastId = Date.now().toString();
+        setToast({
+          id: toastId,
+          title: "Chyba ukládání do databáze",
+          message: `Recept byl uložen lokálně v prohlížeči, ale nepodařilo se jej zapsat do online databáze: ${msg}`,
+          type: "warn",
+        });
+        setTimeout(() => {
+          setToast(prev => (prev && prev.id === toastId ? null : prev));
+        }, 7000);
+        return false;
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error("Nepodařilo se odeslat uložení online:", e);
+      const toastId = Date.now().toString();
+      setToast({
+        id: toastId,
+        title: "Chyba spojení s databází",
+        message: "Změny jsou uložené v prohlížeči, ale spojení se serverem selhalo.",
+        type: "warn",
+      });
+      setTimeout(() => {
+        setToast(prev => (prev && prev.id === toastId ? null : prev));
+      }, 7000);
+      return false;
     }
   };
 
@@ -3565,31 +3859,107 @@ ${separator}`;
   };
 
   const processFile = (file: File) => {
-    if (file.size > 15 * 1024 * 1024) {
-      const err = "Soubor je příliš velký (limit je 15 MB). Zvolte prosím menší soubor.";
+    const isImageFile =
+      file.type.startsWith("image/") ||
+      /\.(jpe?g|png|webp|gif|bmp|heic|heif)$/i.test(file.name || "");
+
+    if (!isImageFile && file.size > 3.2 * 1024 * 1024) {
+      const err = "Dokument nebo textový soubor je příliš velký (limit je 3,2 MB pro spolehlivé nahrání).";
       setErrorMessage(err);
       setAddFormError(err);
       return;
     }
 
-    setFileName(file.name);
-    setMimeType(file.type || "application/octet-stream");
-    setFileSize(formatFileSize(file.size));
-    setErrorMessage(null);
-    setAddFormError(null);
-    
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (event.target?.result) {
-        setFileData(event.target.result as string);
-      }
-    };
-    reader.onerror = () => {
-      const err = "Nepodařilo se přečíst nahraný soubor.";
+    if (isImageFile && file.size > 25 * 1024 * 1024) {
+      const err = "Obrázek je příliš velký (limit před zmenšením je 25 MB).";
       setErrorMessage(err);
       setAddFormError(err);
+      return;
+    }
+
+    setErrorMessage(null);
+    setAddFormError(null);
+
+    const readRawAsDataUrl = () => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          setFileName(file.name);
+          setMimeType(file.type || "application/octet-stream");
+          setFileSize(formatFileSize(file.size));
+          setFileData(event.target.result as string);
+        }
+      };
+      reader.onerror = () => {
+        const err = "Nepodařilo se přečíst nahraný soubor.";
+        setErrorMessage(err);
+        setAddFormError(err);
+      };
+      reader.readAsDataURL(file);
     };
-    reader.readAsDataURL(file);
+
+    // Compress large mobile/tablet photos on client to avoid Vercel 4.5 MB request limit
+    if (isImageFile && !/svg/i.test(file.type || "")) {
+      const objectUrl = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const maxDim = 1600;
+          let targetW = img.naturalWidth || img.width;
+          let targetH = img.naturalHeight || img.height;
+          if (targetW > maxDim || targetH > maxDim) {
+            if (targetW >= targetH) {
+              targetH = Math.round((targetH * maxDim) / targetW);
+              targetW = maxDim;
+            } else {
+              targetW = Math.round((targetW * maxDim) / targetH);
+              targetH = maxDim;
+            }
+          }
+          const canvas = document.createElement("canvas");
+          canvas.width = targetW;
+          canvas.height = targetH;
+          const ctx = canvas.getContext("2d");
+          if (ctx) {
+            ctx.fillStyle = "#FFFFFF";
+            ctx.fillRect(0, 0, targetW, targetH);
+            ctx.drawImage(img, 0, 0, targetW, targetH);
+            const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.82);
+            const base64Part = compressedDataUrl.split(",")[1] || "";
+            const estimatedBytes = Math.round((base64Part.length * 3) / 4);
+            URL.revokeObjectURL(objectUrl);
+
+            if (estimatedBytes > 3.2 * 1024 * 1024) {
+              const lowerQualityUrl = canvas.toDataURL("image/jpeg", 0.65);
+              const lowerBase64 = lowerQualityUrl.split(",")[1] || "";
+              const lowerBytes = Math.round((lowerBase64.length * 3) / 4);
+              setFileName(file.name.replace(/\.[^.]+$/, "") + ".jpg");
+              setMimeType("image/jpeg");
+              setFileSize(formatFileSize(lowerBytes));
+              setFileData(lowerQualityUrl);
+            } else {
+              setFileName(file.name.replace(/\.[^.]+$/, "") + ".jpg");
+              setMimeType("image/jpeg");
+              setFileSize(formatFileSize(estimatedBytes));
+              setFileData(compressedDataUrl);
+            }
+            return;
+          }
+        } catch {
+          // Fall back to direct file reading if canvas fails
+        }
+        URL.revokeObjectURL(objectUrl);
+        readRawAsDataUrl();
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(objectUrl);
+        readRawAsDataUrl();
+      };
+      img.src = objectUrl;
+      return;
+    }
+
+    readRawAsDataUrl();
   };
 
   // Drag and drop handlers for admin panel
@@ -3645,11 +4015,18 @@ ${separator}`;
     if (modalFileInputRef.current) {
       modalFileInputRef.current.value = "";
     }
+    if (modalCameraInputRef.current) {
+      modalCameraInputRef.current.value = "";
+    }
   };
 
   // Enhance recipe action via Express backend
   const handleEnhanceRecipe = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isAdmin) {
+      navigateToLoginModal();
+      return;
+    }
     if (!rawText.trim() && !fileData) {
       setErrorMessage("Prosím, vložte text receptu nebo nahrajte obrázek/soubor.");
       return;
@@ -3663,6 +4040,7 @@ ${separator}`;
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "x-admin-password": adminPassword,
         },
         body: JSON.stringify({
           rawText,
@@ -3689,7 +4067,7 @@ ${separator}`;
         updatedAt: new Date().toISOString()
       };
       const updatedRecipes = [newRecipe, ...recipes];
-      saveRecipesToStorage(updatedRecipes, newRecipe);
+      await saveRecipesToStorage(updatedRecipes, newRecipe);
       setSelectedRecipe(newRecipe);
 
       // Clean inputs
@@ -3705,14 +4083,23 @@ ${separator}`;
 
   const handleDeleteRecipe = (id: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    if (!isAdmin) {
+      navigateToLoginModal();
+      return;
+    }
     setRecipeToDelete(id);
   };
 
-  const confirmDeleteRecipe = () => {
+  const confirmDeleteRecipe = async () => {
+    if (!isAdmin) {
+      setRecipeToDelete(null);
+      navigateToLoginModal();
+      return;
+    }
     if (recipeToDelete) {
       const targetDel = recipes.find(r => r.id === recipeToDelete);
       const updated = recipes.filter(r => r.id !== recipeToDelete);
-      saveRecipesToStorage(updated, targetDel, true);
+      await saveRecipesToStorage(updated, targetDel, true);
       if (selectedRecipe?.id === recipeToDelete) {
         setSelectedRecipe(updated[0] || null);
       }
@@ -3735,6 +4122,11 @@ ${separator}`;
   };
 
   const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!isAdmin) {
+      e.target.value = "";
+      navigateToLoginModal();
+      return;
+    }
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -4096,16 +4488,28 @@ ${separator}`;
             </div>
           </button>
 
-          {/* ADMINISTRAČNÍ PANEL NASTAVENÍ (For Admin only) */}
-          {!isReadOnly && isAdmin && (
-            <button
-              type="button"
-              onClick={navigateToAdminSettingsModal}
-              className="bg-white hover:bg-[#FDFCF7] text-slate-700 hover:text-[#1B4332] border border-[#E8E8E1] hover:border-[#1B4332]/30 font-bold p-2 rounded-xl shadow-xs transition-all flex items-center justify-center cursor-pointer"
-              title="Administrace a nastavení kuchařky"
-            >
-              <Settings className="h-4.5 w-4.5 text-slate-600 hover:text-[#1B4332] transition-transform hover:rotate-45 duration-300" />
-            </button>
+          {/* ADMINISTRAČNÍ PANEL NASTAVENÍ / PŘIHLÁŠENÍ */}
+          {!isReadOnly && (
+            isAdmin ? (
+              <button
+                type="button"
+                onClick={() => navigateToAdminSettingsModal()}
+                className="bg-white hover:bg-[#FDFCF7] text-slate-700 hover:text-[#1B4332] border border-[#E8E8E1] hover:border-[#1B4332]/30 font-bold p-2 rounded-xl shadow-xs transition-all flex items-center justify-center cursor-pointer"
+                title="Administrace a nastavení kuchařky"
+              >
+                <Settings className="h-4.5 w-4.5 text-slate-600 hover:text-[#1B4332] transition-transform hover:rotate-45 duration-300" />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => navigateToLoginModal()}
+                className="bg-white hover:bg-[#FDFCF7] text-[#1B4332] border border-[#E8E8E1] hover:border-[#1B4332]/30 font-bold py-2 px-2.5 sm:px-3 rounded-xl shadow-xs transition-all flex items-center gap-1.5 text-xs cursor-pointer"
+                title="Administrátorské přihlášení"
+              >
+                <Lock className="h-3.5 w-3.5 text-[#D97706]" />
+                <span className="hidden sm:inline">Admin</span>
+              </button>
+            )
           )}
         </div>
       </header>
@@ -4162,10 +4566,10 @@ ${separator}`;
               <span className="text-xs font-bold text-[#1B4332] uppercase tracking-wider font-serif">
                 Recepty ({recipes.length})
               </span>
-              {!isReadOnly && (
+              {!isReadOnly && isAdmin && (
               <button
                 type="button"
-                onClick={navigateToAddRecipeModal}
+                onClick={() => navigateToAddRecipeModal()}
                 className="bg-[#D97706] hover:bg-[#C26405] active:scale-95 text-white font-bold py-1.5 px-3 rounded-lg text-xs transition-all flex items-center gap-1 cursor-pointer shadow-xs"
                 title="Vytvořit zcela nový recept"
               >
@@ -4350,7 +4754,7 @@ ${separator}`;
                                       </h3>
                                     </div>
 
-                                    {!isReadOnly && (<button
+                                    {!isReadOnly && isAdmin && (<button
                                       id={`btn-delete-recipe-chrono-${recipe.id}`}
                                       onClick={(e) => {
                                         e.stopPropagation();
@@ -4458,7 +4862,7 @@ ${separator}`;
                                       </h3>
                                     </div>
 
-                                    {!isReadOnly && (<button
+                                    {!isReadOnly && isAdmin && (<button
                                       id={`btn-delete-recipe-alpha-${recipe.id}`}
                                       onClick={(e) => {
                                         e.stopPropagation();
@@ -4486,31 +4890,16 @@ ${separator}`;
           {/* SIDEBAR FOOTER METRICS INFO */}
           {!isAdmin && (
             <div className="p-4 bg-[#F5F5F0] border-t border-[#E8E8E1] text-xs text-[#5C5C50] flex flex-col gap-1.5">
-              <span className="font-semibold text-[10px] text-[#1B4332] uppercase tracking-wider">Záloha a přenos receptů:</span>
-              <div className="grid grid-cols-2 gap-1.5">
-                <button
-                  type="button"
-                  onClick={handleExportBackup}
-                  className="px-2 py-1 bg-white hover:bg-[#FDFCF7] border border-[#E8E8E1] rounded-md text-[10px] font-bold text-slate-700 hover:text-[#1B4332] flex items-center justify-center gap-1 transition-all cursor-pointer shadow-xs"
-                  title="Stáhnout zálohu všech receptů jako JSON soubor"
-                >
-                  <Download className="h-2.5 w-2.5 text-emerald-700 font-bold" />
-                  <span>Export</span>
-                </button>
-                <label
-                  className="px-2 py-1 bg-white hover:bg-[#FDFCF7] border border-[#E8E8E1] rounded-md text-[10px] font-bold text-slate-700 hover:text-[#1B4332] flex items-center justify-center gap-1 transition-all cursor-pointer shadow-xs text-center"
-                  title="Nahrát zálohu receptů z JSON souboru"
-                >
-                  <Upload className="h-2.5 w-2.5 text-blue-700 font-bold" />
-                  <span>Import</span>
-                  <input
-                    type="file"
-                    accept=".json"
-                    onChange={handleImportBackup}
-                    className="hidden"
-                  />
-                </label>
-              </div>
+              <span className="font-semibold text-[10px] text-[#1B4332] uppercase tracking-wider">Záloha receptů:</span>
+              <button
+                type="button"
+                onClick={handleExportBackup}
+                className="w-full px-2.5 py-1.5 bg-white hover:bg-[#FDFCF7] border border-[#E8E8E1] rounded-md text-[10px] font-bold text-slate-700 hover:text-[#1B4332] flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs"
+                title="Stáhnout zálohu všech receptů jako JSON soubor"
+              >
+                <Download className="h-3 w-3 text-emerald-700 font-bold" />
+                <span>Exportovat zálohu (JSON)</span>
+              </button>
             </div>
           )}
         </aside>
@@ -6327,201 +6716,44 @@ ${separator}`;
 
                 {/* ZÓNA PRO ADMINISTRÁTORY (TVORBA NOVÝCH RECEPTŮ) */}
                 {isAdmin ? (
-                  <div className="space-y-4 animate-fade-in">
-                    {/* Welcome Card Info */}
-                    <div className="bg-gradient-to-r from-[#F0F4F1] to-[#FDFCF7] border border-[#2D6A4F]/20 rounded-2xl p-6 flex flex-col sm:flex-row gap-4 items-start sm:items-center shadow-xs">
-                      <div className="p-3 bg-[#1B4332] rounded-xl text-white self-start sm:self-center shrink-0">
-                        <Sparkles className="h-6 w-6" />
-                      </div>
-                      <div className="space-y-1">
-                        <h3 className="font-serif italic font-bold text-lg text-[#1B4332] leading-snug">Administrátorský panel tvorby</h3>
-                        <p className="text-xs text-[#4A4A40] leading-relaxed">
-                          Jste přihlášeni jako Administrátor. Vložte jakýkoli neuspořádaný recept, vyfocený kuchařský zápisník, nebo PDF a nechte umělou inteligenci sestavit precizní recept.
-                        </p>
+                  <div className="bg-gradient-to-r from-[#F0F4F1] to-[#FDFCF7] border border-[#2D6A4F]/25 rounded-2xl p-6 sm:p-7 shadow-xs space-y-4 animate-fade-in">
+                    <div className="flex flex-col sm:flex-row gap-4 items-start sm:items-center justify-between">
+                      <div className="flex items-start sm:items-center gap-3.5">
+                        <div className="p-3 bg-[#1B4332] rounded-xl text-white shrink-0 shadow-xs">
+                          <MessageSquare className="h-6 w-6 text-amber-300" />
+                        </div>
+                        <div className="space-y-1">
+                          <h3 className="font-serif italic font-bold text-lg text-[#1B4332] leading-snug">
+                            Administrátorský panel tvorby
+                          </h3>
+                          <p className="text-xs text-[#4A4A40] leading-relaxed max-w-xl">
+                            Jste přihlášeni jako Administrátor. Spusťte interaktivní Gemini Chat podle 5 pilířů (můžete psát, vyfotit recept mobilem/tabletem či nahrát soubor) a po kontrole návrh jedním kliknutím uložte do databáze.
+                          </p>
+                        </div>
                       </div>
                     </div>
 
-                    {/* Main Action Input Form */}
-                    <form 
-                      onSubmit={handleEnhanceRecipe}
-                      className="bg-white border border-[#E8E8E1] rounded-2xl shadow-sm overflow-hidden p-6 sm:p-8 space-y-5"
-                    >
-                      <div className="space-y-2">
-                        <label className="block text-xs font-bold text-[#1B4332] uppercase tracking-wider">
-                          Vložte chaotický text receptu k opravě a syntéze
-                        </label>
-                        <textarea
-                          value={rawText}
-                          onChange={(e) => setRawText(e.target.value)}
-                          rows={6}
-                          placeholder="Sem napište nebo vložte cokoli... Například: 'kuřecí na medu a česneku, máme sušený česnek a lžíci medu, taky starou remosku, nevím jak dlouho dělat aby nebylo suché... ingredience: kuře 4 kousky, pepř ruznobarevny, kus masla'."
-                          className="w-full text-sm p-4 border border-[#E8E8E1] rounded-lg focus:outline-hidden focus:ring-1 focus:ring-[#1B4332] focus:border-[#1B4332] bg-[#FDFCF7] placeholder-[#9A9A8C] text-[#2C2C2C]"
-                        />
-                      </div>
-
-                      {/* Multimodal Drag-and-Drop Area */}
-                      <div className="space-y-2">
-                        <label className="block text-xs font-bold text-[#1B4332] uppercase tracking-wider">
-                          Nahrát fotku receptu, textový soubor nebo PDF dokument (Volitelné)
-                        </label>
-                        
-                        <div
-                          onDragEnter={handleDrag}
-                          onDragOver={handleDrag}
-                          onDragLeave={handleDrag}
-                          onDrop={handleDrop}
-                          onClick={() => fileInputRef.current?.click()}
-                          className={`border-2 border-dashed rounded-lg p-6 text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-2 ${
-                            dragActive 
-                              ? "border-[#1B4332] bg-[#F0F4F1]/30" 
-                              : "border-[#E8E8E1] hover:border-[#1B4332]/50 bg-[#FDFCF7]/60 hover:bg-[#FDFCF7]"
-                          }`}
-                        >
-                          <input
-                            ref={fileInputRef}
-                            type="file"
-                            accept="image/*,application/pdf,text/*,.txt,.md,.markdown,.csv,.json,.rtf,.doc,.docx"
-                            onChange={handleFileChange}
-                            className="hidden"
-                          />
-
-                          {fileName ? (
-                            <div className="flex items-center gap-3 bg-[#F0F4F1] border border-[#2D6A4F]/20 py-2 px-3 rounded-xl text-[#1B4332] font-semibold text-xs relative">
-                              {mimeType?.startsWith("image/") || /\.(jpe?g|png|webp|gif|svg|bmp|heic|heif)$/i.test(fileName || "") ? (
-                                <img
-                                  src={fileData || ""}
-                                  alt={fileName}
-                                  className="h-10 w-10 object-cover rounded-lg border border-emerald-300 shadow-2xs"
-                                />
-                              ) : mimeType?.includes("pdf") || (fileName || "").toLowerCase().endsWith(".pdf") ? (
-                                <FileText className="h-5 w-5 text-red-600 shrink-0" />
-                              ) : (
-                                <FileText className="h-5 w-5 text-blue-600 shrink-0" />
-                              )}
-                              <div className="text-left">
-                                <span className="max-w-[200px] truncate block font-bold">{fileName}</span>
-                                {fileSize && <span className="text-[10px] text-slate-500">{fileSize}</span>}
-                              </div>
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  removeFile();
-                                }}
-                                className="bg-[#2D6A4F]/10 hover:bg-[#2D6A4F]/20 rounded-full p-1 text-[#1B4332] ml-2 transition-all cursor-pointer"
-                                title="Odebrat přílohu"
-                              >
-                                <X className="h-3.5 w-3.5" />
-                              </button>
-                            </div>
-                          ) : (
-                            <>
-                              <div className="bg-[#F5F5F0] p-2.5 rounded-full text-[#5C5C50]">
-                                <Upload className="h-5 w-5 expand-animation" />
-                              </div>
-                              <div>
-                                <p className="text-xs font-bold text-[#4A4A40]">Přetáhněte sem obrázek nebo klikněte</p>
-                                <p className="text-[10px] text-[#9A9A8C] mt-0.5">Podpora obrázků (JPEG, PNG, WEBP), textových souborů (.txt, .md) a PDF (max 15 MB)</p>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      </div>
-
-                      {/* ERROR LOGGER DISPLAY */}
-                      {errorMessage && (
-                        <div className="bg-red-50 border border-red-200 text-red-800 text-xs p-4 rounded-xl flex items-start gap-2.5">
-                          <AlertCircle className="h-4 w-4 text-red-600 mt-0.5 flex-shrink-0" />
-                          <div>
-                            <span className="font-bold">Nastala chyba:</span> {errorMessage}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Submit Button */}
-                      <div className="pt-2">
-                        <button
-                          type="submit"
-                          disabled={isLoading}
-                          className="w-full bg-[#D97706] hover:bg-[#C26405] disabled:bg-slate-300 disabled:cursor-not-allowed active:scale-[0.99] text-white font-bold py-3.5 px-6 rounded-lg shadow-sm hover:shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer text-sm"
-                        >
-                          <Sparkles className="h-5 w-5" />
-                          <span>Vylepšit můj recept (5 pilířů AI)</span>
-                        </button>
-                        <p className="text-center text-[10px] text-[#9A9A8C] mt-2 font-medium">
-                          Zpracování potrvá zhruba 10-15 sekund pro důkladný výpočet fyzikálních a kulinářských parametrů.
-                        </p>
-                      </div>
-                    </form>
-                  </div>
-                ) : (
-                  isStudioEnv && (
-                    /* Admin/API key Lock Screen (Only visible in AI Studio Dev Environment for authorization) */
-                    <div className="bg-white border border-[#E8E8E1] rounded-2xl p-8 text-center space-y-6 shadow-md max-w-xl mx-auto my-4">
-                      <div className="mx-auto w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center text-amber-600 border border-amber-100">
-                        <Lock className="w-8 h-8 animate-bounce-subtle" />
-                      </div>
-                      
-                      <div className="space-y-2">
-                        <h3 className="font-serif italic font-bold text-xl text-[#1B4332]">
-                          Přidávání nových receptů je zabezpečeno
-                        </h3>
-                        <p className="text-xs text-[#4A4A40] leading-relaxed">
-                          Pro generování nových AI receptů se nejprve přihlaste administračním kódem nebo API klíčem.
-                        </p>
-                      </div>
-
-                      <form
-                        onSubmit={async (e) => {
-                          e.preventDefault();
-                          await handleLoginWithPassword(adminPassword);
-                        }}
-                        className="space-y-4 pt-2 text-left"
+                    <div className="flex flex-wrap gap-3 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => navigateToAddRecipeModal(true, "ai")}
+                        className="bg-[#D97706] hover:bg-[#C26405] active:scale-[0.99] text-white font-bold py-3 px-5 rounded-xl shadow-sm hover:shadow-md transition-all flex items-center gap-2 cursor-pointer text-xs sm:text-sm"
                       >
-                        <div className="space-y-1.5">
-                          <label className="block text-xs font-extrabold text-[#1B4332] uppercase tracking-wider">
-                            Administrační / API klíč:
-                          </label>
-                          <div className="relative">
-                            <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400">
-                              <Key className="w-4 h-4" />
-                            </span>
-                            <input
-                              type="password"
-                              placeholder="Zadejte administrační kód nebo API klíč..."
-                              value={adminPassword}
-                              onChange={(e) => {
-                                setAdminPassword(e.target.value);
-                                setLoginError(null);
-                              }}
-                              className="w-full text-sm pl-10 pr-4 py-3 border border-[#E8E8E1] rounded-xl focus:outline-hidden focus:ring-1 focus:ring-[#1B4332] focus:border-[#1B4332] bg-[#FDFCF7] text-[#2C2C2C] placeholder-[#9A9A8C]"
-                            />
-                          </div>
-                        </div>
+                        <MessageSquare className="h-4 w-4" />
+                        <span>Otevřít Gemini Chat (5 pilířů)</span>
+                      </button>
 
-                        {loginError && (
-                          <div className="bg-red-50 border border-red-100 text-red-800 text-xs py-2 px-3 rounded-lg flex items-center gap-2">
-                            <AlertCircle className="h-4 w-4 text-red-600 shrink-0" />
-                            <span>{loginError}</span>
-                          </div>
-                        )}
-
-                        <button
-                          type="submit"
-                          disabled={isLoginLoading}
-                          className="w-full bg-[#D97706] hover:bg-[#C26405] disabled:bg-amber-800/40 active:scale-95 text-white font-bold py-3.5 px-6 rounded-xl transition-all shadow-sm hover:shadow-md flex items-center justify-center gap-2 cursor-pointer text-xs"
-                        >
-                          {isLoginLoading ? (
-                            <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                          ) : (
-                            <LogIn className="w-4.5 h-4.5 text-amber-200" />
-                          )}
-                          <span>{isLoginLoading ? "Ověřování..." : "Ověřit a pokračovat k zadání"}</span>
-                        </button>
-                      </form>
+                      <button
+                        type="button"
+                        onClick={() => navigateToAddRecipeModal(true, "manual")}
+                        className="bg-white hover:bg-[#F5F5F0] text-[#1B4332] border border-[#2D6A4F]/30 font-bold py-3 px-5 rounded-xl shadow-2xs transition-all flex items-center gap-2 cursor-pointer text-xs sm:text-sm"
+                      >
+                        <ChefHat className="h-4 w-4 text-[#D97706]" />
+                        <span>Ruční vložení receptu</span>
+                      </button>
                     </div>
-                  )
-                )}
+                  </div>
+                ) : null}
 
               </motion.div>
             )}
@@ -6554,10 +6786,10 @@ ${separator}`;
                   Odhlásit se
                 </button>
               </div>
-            ) : (!isReadOnly && isStudioEnv) ? (
+            ) : !isReadOnly ? (
               <button
                 type="button"
-                onClick={() => setShowLoginModal(true)}
+                onClick={() => navigateToLoginModal()}
                 className="text-xs text-[#2D6A4F] hover:underline hover:text-[#1B4332] cursor-pointer font-bold flex items-center gap-1"
               >
                 🔐 Administrátorské přihlášení
@@ -6670,21 +6902,23 @@ ${separator}`;
                     : "text-slate-500 hover:text-slate-800"
                 }`}
               >
-                🔒 Správa hesla
+                🔒 Administrátorské přihlášení
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setActiveTab("github");
-                }}
-                className={`px-4 py-2 text-xs font-bold rounded-t-xl transition-all ${
-                  activeTab === "github"
-                    ? "bg-[#FDFCF7] text-[#1B4332] border-t border-x border-[#E8E8E1] -mb-[1px]"
-                    : "text-slate-500 hover:text-slate-800"
-                }`}
-              >
-                🐙 GitHub Připojení
-              </button>
+              {isAdmin && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTab("github");
+                  }}
+                  className={`px-4 py-2 text-xs font-bold rounded-t-xl transition-all ${
+                    activeTab === "github"
+                      ? "bg-[#FDFCF7] text-[#1B4332] border-t border-x border-[#E8E8E1] -mb-[1px]"
+                      : "text-slate-500 hover:text-slate-800"
+                  }`}
+                >
+                  🐙 GitHub Připojení
+                </button>
+              )}
             </div>
 
             {/* Content Tab 1: Admin Password */}
@@ -6725,15 +6959,14 @@ ${separator}`;
                 {/* Instructions on how to set/configure it */}
                 <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-4 text-[11px] leading-relaxed space-y-1.5">
                   <p className="font-bold uppercase tracking-wider text-amber-950 flex items-center gap-1">
-                    💡 Jak nastavit administrátorské heslo?
+                    💡 Jak nastavit nebo změnit heslo (Vercel / AI Studio)?
                   </p>
                   <p>
-                    Vaše administrátorské heslo je spravováno bezpečně na serveru.
+                    Vaše administrátorské heslo se ověřuje bezpečně na serveru pomocí proměnné <code className="font-mono bg-amber-100 px-1 py-0.5 rounded font-bold">ADMIN_PASSWORD</code>:
                   </p>
                   <ol className="list-decimal pl-4 space-y-1">
-                    <li>Otevřete soubor <code className="font-mono bg-amber-100 px-1 py-0.5 rounded font-bold">.env</code> v kořenovém adresáři.</li>
-                    <li>Přidejte nebo upravte řádek s proměnnou <code className="font-mono bg-amber-100 px-1 py-0.5 rounded font-bold">ADMIN_PASSWORD=moje_super_tajne_heslo</code>.</li>
-                    <li>Po uložení souboru restartujte vývojový server nebo aplikaci znovu nasaďte.</li>
+                    <li>Na <strong>Vercelu</strong>: otevřete <em>Settings → Environment Variables</em> a nastavte <code className="font-mono bg-amber-100 px-1 py-0.5 rounded font-bold">ADMIN_PASSWORD</code> (po změně spusťte Redeploy).</li>
+                    <li>V <strong>AI Studiu / lokálně</strong>: nastavte stejnou proměnnou <code className="font-mono bg-amber-100 px-1 py-0.5 rounded font-bold">ADMIN_PASSWORD</code> v Secrets nebo souboru <code className="font-mono bg-amber-100 px-1 py-0.5 rounded font-bold">.env</code>.</li>
                   </ol>
                 </div>
 
@@ -6760,8 +6993,8 @@ ${separator}`;
               </form>
             )}
 
-            {/* Content Tab 2: GitHub Config */}
-            {activeTab === "github" && (
+            {/* Content Tab 2: GitHub Config (Admin Only) */}
+            {activeTab === "github" && isAdmin && (
               <div className="p-6 space-y-4 text-slate-700 flex flex-col flex-1 overflow-y-auto max-h-[70vh]">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
@@ -7901,7 +8134,7 @@ ${separator}`;
                     Vytvořit nový recept
                   </h3>
                   <p className="text-xs text-emerald-100/80 font-sans">
-                    Ruční zadání ingrediencí a kroků nebo automatická AI syntéza
+                    Interaktivní Gemini Chat (5 pilířů) s návrhem k potvrzení nebo ruční zadání
                   </p>
                 </div>
               </div>
@@ -7920,6 +8153,22 @@ ${separator}`;
               <button
                 type="button"
                 onClick={() => {
+                  setAddRecipeTab("ai");
+                  setAddFormError(null);
+                }}
+                className={`px-4 py-2.5 text-xs font-bold rounded-t-xl transition-all cursor-pointer flex items-center gap-2 ${
+                  addRecipeTab === "ai"
+                    ? "bg-[#FDFCF7] text-[#1B4332] border-t border-x border-[#E8E8E1] -mb-[1px] shadow-2xs"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <MessageSquare className="h-4 w-4 text-[#D97706]" />
+                <span>Gemini Chat (5 pilířů)</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
                   setAddRecipeTab("manual");
                   setAddFormError(null);
                 }}
@@ -7931,22 +8180,6 @@ ${separator}`;
               >
                 <ChefHat className="h-4 w-4 text-[#D97706]" />
                 <span>Ruční vložení (Formulář)</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => {
-                  setAddRecipeTab("ai");
-                  setAddFormError(null);
-                }}
-                className={`px-4 py-2.5 text-xs font-bold rounded-t-xl transition-all cursor-pointer flex items-center gap-2 ${
-                  addRecipeTab === "ai"
-                    ? "bg-[#FDFCF7] text-[#1B4332] border-t border-x border-[#E8E8E1] -mb-[1px] shadow-2xs"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                <Sparkles className="h-4 w-4 text-[#D97706]" />
-                <span>Pomocí AI (Generátor)</span>
               </button>
             </div>
 
@@ -8249,233 +8482,320 @@ ${separator}`;
                 </form>
               )}
 
-              {/* TAB 2: AI GENERATOR */}
+              {/* TAB 2: GEMINI CHAT (5 PILÍŘŮ S POTVRZENÍM) */}
               {addRecipeTab === "ai" && (
-                <form id="add-recipe-ai-form" onSubmit={handleGenerateAiModalRecipe} className="space-y-5">
-                  <div className="bg-gradient-to-r from-amber-50/90 via-emerald-50/40 to-amber-50/90 border border-amber-200/80 rounded-2xl p-4 sm:p-5 text-amber-900 text-xs space-y-2">
-                    <div className="flex items-center gap-2 font-bold text-sm text-[#D97706]">
-                      <Sparkles className="h-4 w-4" />
-                      <span>Kulinářský AI generátor a digitalizátor receptů</span>
+                <div
+                  onDragEnter={handleModalDrag}
+                  onDragOver={handleModalDrag}
+                  onDragLeave={handleModalDrag}
+                  onDrop={handleModalDrop}
+                  className={`flex flex-col gap-3 min-h-[420px] rounded-2xl transition-all ${
+                    modalDragActive ? "ring-2 ring-[#1B4332] bg-emerald-50/40" : ""
+                  }`}
+                >
+                  {/* 5 Pillars Banner */}
+                  <div className="bg-gradient-to-r from-amber-50/90 via-emerald-50/40 to-amber-50/90 border border-amber-200/80 rounded-2xl p-3.5 text-amber-900 text-xs flex items-start justify-between gap-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2 font-bold text-sm text-[#1B4332]">
+                        <Sparkles className="h-4 w-4 text-[#D97706]" />
+                        <span>Gemini Chat • Analýza podle 5 pilířů</span>
+                      </div>
+                      <p className="leading-relaxed text-slate-700 text-[11px] sm:text-xs">
+                        Napište požadavek (např. <em>„vytvoř recept na bramborové placky“</em>), vyfoťte recept tabletem/mobilem nebo nahrajte text/PDF. Gemini recept nejprve navrhne a do databáze ho vloží až po vašem potvrzení.
+                      </p>
                     </div>
-                    <p className="leading-relaxed text-slate-700">
-                      Nahrajte fotku receptu, screenshot, kuchařku, PDF dokument nebo textový soubor (.txt, .md). Můžete také připsat vlastní poznámky nebo zadat recept pouze textem. Umělá inteligence Gemini z nich vytvoří kompletní, vědecky ověřený recept se všemi povinnými časy u procesních kroků.
-                    </p>
+                    {chatMessages.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setChatMessages([]);
+                          setChatDraftRecipe(null);
+                          setChatInput("");
+                          removeFile();
+                        }}
+                        className="text-[11px] font-bold text-slate-500 hover:text-red-600 px-2.5 py-1 bg-white border border-slate-200 rounded-lg shrink-0 cursor-pointer transition-colors"
+                      >
+                        Nový chat
+                      </button>
+                    )}
                   </div>
 
-                  {isGeneratingAiModal ? (
-                    <div className="bg-[#1B4332] text-white border border-[#2D6A4F] rounded-2xl p-6 shadow-lg space-y-4 text-center my-2 animate-fadeIn">
-                      <div className="relative mx-auto w-14 h-14 flex items-center justify-center">
-                        <div className="w-14 h-14 rounded-full border-4 border-emerald-900 border-t-amber-400 animate-spin absolute inset-0" />
-                        <ChefHat className="h-6 w-6 text-amber-400 animate-pulse relative z-10" />
-                      </div>
-
-                      <div>
-                        <h4 className="font-extrabold text-sm text-emerald-200 uppercase tracking-wider">
-                          Probíhá generování receptu přes AI
-                        </h4>
-                        <p className="text-xs text-emerald-100/80 mt-1 font-medium max-w-sm mx-auto">
-                          {fileName
-                            ? `Kulinářský model Gemini zpracovává přiložený soubor "${fileName}" a sestavuje recept.`
-                            : "Kulinářský model Gemini zpracovává zadání a dopočítává časy u všech kroků postupu."}
-                        </p>
-                      </div>
-
-                      {/* Live Step Text */}
-                      <div className="bg-emerald-950/80 border border-emerald-800/80 rounded-xl p-3 text-xs text-amber-300 font-semibold flex items-center justify-center gap-2">
-                        <Sparkles className="h-4 w-4 text-amber-400 animate-bounce shrink-0" />
-                        <span>{aiModalProgressText || "Generuji recept..."}</span>
-                      </div>
-
-                      {/* Progress bar */}
-                      <div className="space-y-1.5 pt-1">
-                        <div className="flex items-center justify-between text-[11px] text-emerald-300 font-mono font-bold px-1">
-                          <span>Průběh zpracování:</span>
-                          <span className="text-amber-400">{aiModalProgressPercent}%</span>
+                  {/* Conversation Area */}
+                  <div
+                    ref={chatScrollRef}
+                    className="flex-1 bg-white border border-[#E8E8E1] rounded-2xl p-3.5 sm:p-4 space-y-3 overflow-y-auto max-h-[38vh] sm:max-h-[42vh]"
+                  >
+                    {chatMessages.length === 0 ? (
+                      <div className="py-4 text-center space-y-3">
+                        <div className="mx-auto w-12 h-12 rounded-2xl bg-[#F0F4F1] text-[#1B4332] flex items-center justify-center">
+                          <MessageSquare className="h-6 w-6 text-[#D97706]" />
                         </div>
-                        <div className="w-full bg-emerald-950 h-2 rounded-full overflow-hidden border border-emerald-800">
+                        <div className="space-y-1 max-w-md mx-auto">
+                          <p className="text-xs sm:text-sm font-bold text-[#1B4332]">
+                            Začněte konverzaci nebo přetáhněte fotku / soubor
+                          </p>
+                          <p className="text-[11px] text-slate-500">
+                            Každý návrh projde vědeckou kontrolou pěti pilířů a obsahuje přesné časy všech kroků.
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+                          {[
+                            "Vytvoř recept na bramborové placky",
+                            "Navrhni rychlou večeři z kuřecího masa",
+                            "Připrav poctivou česnečku s krutony",
+                          ].map((samplePrompt) => (
+                            <button
+                              key={samplePrompt}
+                              type="button"
+                              onClick={() => handleSendChatMessage(samplePrompt)}
+                              disabled={isChatLoading}
+                              className="px-3 py-1.5 bg-[#FDFCF7] hover:bg-emerald-50 border border-[#E8E8E1] hover:border-[#2D6A4F]/40 rounded-lg text-[11px] font-semibold text-[#1B4332] transition-all cursor-pointer"
+                            >
+                              {samplePrompt}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ) : (
+                      chatMessages.map((msg) => (
+                        <div
+                          key={msg.id}
+                          className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
+                        >
                           <div
-                            className="bg-gradient-to-r from-amber-500 via-amber-400 to-emerald-400 h-full transition-all duration-300 ease-out"
-                            style={{ width: `${aiModalProgressPercent}%` }}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="space-y-5">
-                      {/* Multimodal Attachment Dropzone / File Picker */}
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <label className="block text-xs font-bold text-[#1B4332] uppercase tracking-wider">
-                            Vložit soubor, obrázek nebo dokument receptu
-                          </label>
-                          <span className="text-[11px] text-slate-500 font-medium">
-                            {fileName ? "1 soubor přiložen" : "Volitelné (obrázek, text, PDF)"}
-                          </span>
-                        </div>
-
-                        <input
-                          ref={modalFileInputRef}
-                          type="file"
-                          accept="image/*,application/pdf,text/*,.txt,.md,.markdown,.csv,.json,.rtf,.doc,.docx"
-                          onChange={handleFileChange}
-                          className="hidden"
-                        />
-
-                        {fileData ? (
-                          /* Active File Attachment Card */
-                          <div className="bg-emerald-50/70 border-2 border-[#1B4332]/30 rounded-2xl p-4 shadow-2xs transition-all flex flex-col sm:flex-row items-center justify-between gap-4">
-                            <div className="flex items-center gap-3.5 w-full sm:w-auto min-w-0">
-                              {mimeType?.startsWith("image/") || /\.(jpe?g|png|webp|gif|svg|bmp|heic|heif)$/i.test(fileName || "") ? (
-                                <div className="relative group shrink-0">
-                                  <img
-                                    src={fileData}
-                                    alt={fileName || "Náhled přílohy"}
-                                    className="h-16 w-16 sm:h-20 sm:w-20 object-cover rounded-xl border border-emerald-200 shadow-sm"
-                                  />
-                                  <div className="absolute inset-0 bg-black/10 rounded-xl pointer-events-none" />
-                                </div>
-                              ) : mimeType?.includes("pdf") || (fileName || "").toLowerCase().endsWith(".pdf") ? (
-                                <div className="h-16 w-16 sm:h-20 sm:w-20 rounded-xl bg-red-100 border border-red-200 flex flex-col items-center justify-center text-red-600 shrink-0">
-                                  <FileText className="h-8 w-8 stroke-[1.75]" />
-                                  <span className="text-[10px] font-bold mt-1 tracking-wider uppercase">PDF</span>
-                                </div>
-                              ) : (
-                                <div className="h-16 w-16 sm:h-20 sm:w-20 rounded-xl bg-blue-100 border border-blue-200 flex flex-col items-center justify-center text-blue-700 shrink-0">
-                                  <FileText className="h-8 w-8 stroke-[1.75]" />
-                                  <span className="text-[10px] font-bold mt-1 tracking-wider uppercase">TEXT</span>
-                                </div>
-                              )}
-
-                              <div className="min-w-0 flex-1 space-y-1">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#1B4332] text-white">
-                                    <Sparkles className="h-3 w-3 text-amber-300" />
-                                    {mimeType?.startsWith("image/") || /\.(jpe?g|png|webp|gif|svg|bmp|heic|heif)$/i.test(fileName || "")
-                                      ? "Obrázek (AI Vision)"
-                                      : mimeType?.includes("pdf") || (fileName || "").toLowerCase().endsWith(".pdf")
-                                      ? "PDF dokument"
-                                      : "Textový soubor"}
-                                  </span>
-                                  {fileSize && (
-                                    <span className="text-[11px] font-semibold text-slate-500">
-                                      {fileSize}
-                                    </span>
-                                  )}
-                                </div>
-                                <p className="text-xs sm:text-sm font-bold text-slate-800 truncate" title={fileName || ""}>
-                                  {fileName}
-                                </p>
-                                <p className="text-[11px] text-slate-600">
-                                  Gemini vytěží z tohoto souboru kompletní suroviny a časově přesný postup.
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="flex items-center gap-2 w-full sm:w-auto justify-end shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => modalFileInputRef.current?.click()}
-                                className="px-3.5 py-2 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 transition-all cursor-pointer shadow-2xs"
-                              >
-                                Změnit soubor
-                              </button>
-                              <button
-                                type="button"
-                                onClick={removeFile}
-                                className="p-2 bg-red-100 hover:bg-red-200 text-red-700 border border-red-200 rounded-xl transition-all cursor-pointer"
-                                title="Odebrat soubor"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </button>
-                            </div>
-                          </div>
-                        ) : (
-                          /* Empty Dropzone State */
-                          <div
-                            onDragEnter={handleModalDrag}
-                            onDragOver={handleModalDrag}
-                            onDragLeave={handleModalDrag}
-                            onDrop={handleModalDrop}
-                            onClick={() => modalFileInputRef.current?.click()}
-                            className={`border-2 border-dashed rounded-2xl p-6 sm:p-7 text-center transition-all cursor-pointer flex flex-col items-center justify-center gap-3 select-none ${
-                              modalDragActive
-                                ? "border-[#1B4332] bg-emerald-50/80 ring-4 ring-emerald-200/50 scale-[1.01]"
-                                : "border-slate-300 hover:border-[#1B4332]/60 bg-amber-50/20 hover:bg-amber-50/50 shadow-2xs"
+                            className={`max-w-[88%] sm:max-w-[82%] rounded-2xl px-3.5 py-2.5 text-xs sm:text-sm space-y-2 ${
+                              msg.role === "user"
+                                ? "bg-[#1B4332] text-white rounded-br-sm"
+                                : "bg-[#F5F5F0] text-[#2C2C2C] border border-[#E8E8E1] rounded-bl-sm"
                             }`}
                           >
-                            <div className="flex items-center justify-center gap-2 text-slate-600">
-                              <div className="p-3 bg-amber-100 text-amber-800 rounded-2xl shadow-2xs">
-                                <FileImage className="h-6 w-6 stroke-[2]" />
+                            {msg.attachment && (
+                              <div className="flex items-center gap-2 bg-black/15 rounded-xl p-2 text-[11px]">
+                                {msg.attachment.previewUrl ? (
+                                  <img
+                                    src={msg.attachment.previewUrl}
+                                    alt={msg.attachment.fileName}
+                                    className="h-12 w-12 object-cover rounded-lg border border-white/20 shrink-0"
+                                  />
+                                ) : (
+                                  <FileText className="h-4 w-4 shrink-0" />
+                                )}
+                                <div className="min-w-0">
+                                  <p className="font-bold truncate">{msg.attachment.fileName}</p>
+                                  {msg.attachment.fileSize && (
+                                    <p className="text-[10px] opacity-80">{msg.attachment.fileSize}</p>
+                                  )}
+                                </div>
                               </div>
-                              <div className="p-3 bg-emerald-100 text-[#1B4332] rounded-2xl shadow-2xs -ml-2">
-                                <FileText className="h-6 w-6 stroke-[2]" />
-                              </div>
-                              <div className="p-3 bg-white border border-slate-200 text-slate-700 rounded-2xl shadow-2xs -ml-2">
-                                <Upload className="h-6 w-6 stroke-[2]" />
-                              </div>
-                            </div>
-
-                            <div className="space-y-1">
-                              <p className="text-xs sm:text-sm font-bold text-slate-800">
-                                Přetáhněte sem obrázek nebo jakýkoliv vlastní soubor
-                              </p>
-                              <p className="text-xs text-slate-600 max-w-md mx-auto">
-                                Nebo klikněte a vyberte soubor ze svého zařízení (fotku kuchařky, screenshot z mobilu, PDF nebo textový soubor .txt / .md).
-                              </p>
-                            </div>
-
-                            <div className="flex flex-wrap items-center justify-center gap-2 pt-1 text-[11px]">
-                              <span className="px-2.5 py-1 bg-white border border-slate-200 text-slate-600 rounded-lg font-semibold shadow-2xs">
-                                📷 Fotka / Screenshot
-                              </span>
-                              <span className="px-2.5 py-1 bg-white border border-slate-200 text-slate-600 rounded-lg font-semibold shadow-2xs">
-                                📄 Textový soubor (.txt, .md)
-                              </span>
-                              <span className="px-2.5 py-1 bg-white border border-slate-200 text-slate-600 rounded-lg font-semibold shadow-2xs">
-                                📑 PDF dokument
-                              </span>
-                            </div>
-
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                modalFileInputRef.current?.click();
-                              }}
-                              className="mt-1 px-4 py-2 bg-white hover:bg-slate-50 border border-slate-300 text-[#1B4332] text-xs font-bold rounded-xl shadow-2xs transition-all cursor-pointer flex items-center gap-2"
-                            >
-                              <Upload className="h-3.5 w-3.5 text-[#D97706]" />
-                              <span>Vybrat soubor ze zařízení</span>
-                            </button>
+                            )}
+                            <p className="whitespace-pre-wrap leading-relaxed">{msg.text}</p>
                           </div>
+                        </div>
+                      ))
+                    )}
+
+                    {isChatLoading && (
+                      <div className="flex justify-start">
+                        <div className="bg-[#F5F5F0] border border-[#E8E8E1] rounded-2xl rounded-bl-sm px-4 py-2.5 text-xs text-[#1B4332] font-semibold flex items-center gap-2">
+                          <Sparkles className="h-4 w-4 text-[#D97706] animate-spin shrink-0" />
+                          <span>Gemini analyzuje zadání podle 5 pilířů...</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Proposed Recipe Preview Card */}
+                  {chatDraftRecipe && (
+                    <div className="bg-[#F0F4F1] border-2 border-[#2D6A4F]/40 rounded-2xl p-4 space-y-3 shadow-xs">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#2D6A4F]/20 pb-2.5">
+                        <div>
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#2D6A4F] block">
+                            Náhled navrženého receptu (5 pilířů)
+                          </span>
+                          <h4 className="font-serif font-bold text-base sm:text-lg text-[#1B4332]">
+                            {chatDraftRecipe.title}
+                          </h4>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleConfirmChatRecipe}
+                          disabled={isConfirmingChatRecipe || isChatLoading}
+                          className="px-4 py-2 bg-[#1B4332] hover:bg-[#2D6A4F] disabled:bg-slate-400 text-white text-xs font-bold rounded-xl shadow-xs transition-all cursor-pointer flex items-center justify-center gap-1.5 shrink-0"
+                        >
+                          <Check className="h-4 w-4 text-emerald-300 stroke-[3]" />
+                          <span>
+                            {isConfirmingChatRecipe ? "Ukládám..." : "Potvrdit a vložit do kuchařky"}
+                          </span>
+                        </button>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2 text-[11px] font-semibold text-[#1B4332]">
+                        {chatDraftRecipe.category && (
+                          <span className="bg-white border border-[#2D6A4F]/20 px-2.5 py-0.5 rounded-md">
+                            📂 {chatDraftRecipe.category}
+                          </span>
+                        )}
+                        {chatDraftRecipe.cookingTime && (
+                          <span className="bg-white border border-[#2D6A4F]/20 px-2.5 py-0.5 rounded-md">
+                            ⏱️ {chatDraftRecipe.cookingTime}
+                          </span>
+                        )}
+                        {chatDraftRecipe.difficulty && (
+                          <span className="bg-white border border-[#2D6A4F]/20 px-2.5 py-0.5 rounded-md">
+                            📊 {chatDraftRecipe.difficulty}
+                          </span>
+                        )}
+                        {chatDraftRecipe.applianceType && (
+                          <span className="bg-white border border-[#2D6A4F]/20 px-2.5 py-0.5 rounded-md">
+                            🍳 {chatDraftRecipe.applianceType}
+                          </span>
                         )}
                       </div>
 
-                      {/* Text Input Area */}
-                      <div className="space-y-2">
-                        <div className="flex items-center justify-between">
-                          <label className="block text-xs font-bold text-[#1B4332] uppercase tracking-wider">
-                            Popis receptu, suroviny nebo dodatečné pokyny
-                          </label>
-                          <span className="text-[11px] text-slate-500 font-medium">
-                            {fileData ? "Volitelné (upřesnění k souboru)" : "Povinné bez souboru"}
+                      {chatDraftRecipe.summary && (
+                        <p className="text-xs italic text-[#4A4A40] leading-relaxed">
+                          {chatDraftRecipe.summary}
+                        </p>
+                      )}
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                        <div className="bg-white/90 border border-[#E8E8E1] rounded-xl p-3 space-y-1.5 max-h-44 overflow-y-auto">
+                          <span className="font-extrabold text-[11px] uppercase tracking-wider text-[#1B4332] block">
+                            Suroviny ({chatDraftRecipe.ingredients?.length || 0})
                           </span>
+                          <ul className="space-y-1 text-[#2C2C2C]">
+                            {(chatDraftRecipe.ingredients || []).map((ing, i) => (
+                              <li key={i} className={isIngredientHeader(ing) ? "font-bold text-[#1B4332] pt-1" : ""}>
+                                {isIngredientHeader(ing) ? cleanHeaderTitle(ing) : `• ${ing}`}
+                              </li>
+                            ))}
+                          </ul>
                         </div>
-                        <textarea
-                          rows={4}
-                          value={addAiText}
-                          onChange={(e) => setAddAiText(e.target.value)}
-                          placeholder={
-                            fileData
-                              ? "Sem můžete napsat dodatečná přání k souboru (např. 'Uprav pro 4 osoby', 'vynech cibuli', 'chci péct v remosce')..."
-                              : "Sem napište své zápisky, seznam surovin nebo nápad (např. 'vepřová panenka, brambory na rozmarýnu, česnek, smetana, rychlá večeře')..."
-                          }
-                          className="w-full text-sm p-4 border border-[#E8E8E1] rounded-xl bg-white text-[#2C2C2C] focus:outline-hidden focus:ring-1 focus:ring-[#1B4332]"
-                        />
+
+                        <div className="bg-white/90 border border-[#E8E8E1] rounded-xl p-3 space-y-1.5 max-h-44 overflow-y-auto">
+                          <span className="font-extrabold text-[11px] uppercase tracking-wider text-[#1B4332] block">
+                            Postup s časy ({chatDraftRecipe.instructions?.length || 0})
+                          </span>
+                          <ol className="space-y-1.5 text-[#2C2C2C] list-decimal pl-4">
+                            {(chatDraftRecipe.instructions || []).map((step, i) => (
+                              <li key={i} className="leading-snug">
+                                {step}
+                              </li>
+                            ))}
+                          </ol>
+                        </div>
                       </div>
+
+                      {chatDraftRecipe.expertJustification && (
+                        <div className="bg-white/80 border border-[#2D6A4F]/20 rounded-xl p-2.5 text-[11px] text-[#3A3A34] leading-relaxed">
+                          <strong className="text-[#1B4332]">🔬 5 pilířů (Food Science):</strong>{" "}
+                          {chatDraftRecipe.expertJustification}
+                        </div>
+                      )}
                     </div>
                   )}
-                </form>
+
+                  {/* Chat Input & Multimodal Attachment Composer */}
+                  <div className="bg-white border border-[#E8E8E1] rounded-2xl p-3 space-y-2.5 shadow-2xs">
+                    <input
+                      ref={modalFileInputRef}
+                      type="file"
+                      accept="image/*,application/pdf,text/*,.txt,.md,.markdown,.csv,.json,.rtf,.doc,.docx"
+                      onChange={handleFileChange}
+                      className="hidden"
+                    />
+                    <input
+                      ref={modalCameraInputRef}
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      onChange={handleFileChange}
+                      className="hidden"
+                    />
+
+                    {fileData && (
+                      <div className="flex items-center justify-between gap-3 bg-emerald-50 border border-[#2D6A4F]/30 rounded-xl p-2 text-xs">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {mimeType?.startsWith("image/") || /\.(jpe?g|png|webp|gif|bmp|heic|heif)$/i.test(fileName || "") ? (
+                            <img
+                              src={fileData}
+                              alt={fileName || "Příloha"}
+                              className="h-10 w-10 object-cover rounded-lg border border-emerald-300 shrink-0"
+                            />
+                          ) : (
+                            <FileText className="h-5 w-5 text-[#1B4332] shrink-0" />
+                          )}
+                          <div className="min-w-0">
+                            <p className="font-bold text-[#1B4332] truncate">{fileName}</p>
+                            {fileSize && <p className="text-[10px] text-slate-500">{fileSize}</p>}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={removeFile}
+                          className="p-1.5 text-red-600 hover:bg-red-100 rounded-lg cursor-pointer transition-colors shrink-0"
+                          title="Odebrat přílohu"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      </div>
+                    )}
+
+                    <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-end">
+                      <textarea
+                        rows={2}
+                        value={chatInput}
+                        onChange={(e) => setChatInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" && !e.shiftKey) {
+                            e.preventDefault();
+                            if (!isChatLoading) handleSendChatMessage();
+                          }
+                        }}
+                        placeholder={
+                          chatDraftRecipe
+                            ? "Napište úpravu návrhu (např. 'přidej kmín', 'přepočti na 6 porcí') nebo nahoře potvrďte..."
+                            : "Napište např. 'vytvoř recept na bramborové placky' nebo přiložte fotku/soubor..."
+                        }
+                        className="flex-1 text-xs sm:text-sm p-2.5 border border-[#E8E8E1] rounded-xl bg-[#FDFCF7] text-[#2C2C2C] focus:outline-hidden focus:ring-1 focus:ring-[#1B4332] resize-none"
+                      />
+
+                      <div className="flex items-center gap-1.5 justify-end shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => modalCameraInputRef.current?.click()}
+                          disabled={isChatLoading}
+                          className="px-3 py-2.5 bg-[#F5F5F0] hover:bg-amber-50 text-[#1B4332] border border-[#E8E8E1] rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                          title="Vyfotit recept fotoaparátem"
+                        >
+                          <Camera className="h-4 w-4 text-[#D97706]" />
+                          <span className="hidden sm:inline">Vyfotit</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => modalFileInputRef.current?.click()}
+                          disabled={isChatLoading}
+                          className="px-3 py-2.5 bg-[#F5F5F0] hover:bg-emerald-50 text-[#1B4332] border border-[#E8E8E1] rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5"
+                          title="Přiložit obrázek, text nebo PDF"
+                        >
+                          <Paperclip className="h-4 w-4 text-[#2D6A4F]" />
+                          <span className="hidden sm:inline">Soubor</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleSendChatMessage()}
+                          disabled={isChatLoading || (!chatInput.trim() && !fileData)}
+                          className="px-4 py-2.5 bg-[#D97706] hover:bg-[#C26405] disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl text-xs font-bold shadow-xs transition-all cursor-pointer flex items-center gap-1.5"
+                        >
+                          <Send className="h-4 w-4" />
+                          <span>Odeslat</span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               )}
 
             </div>
@@ -8487,7 +8807,7 @@ ${separator}`;
                 onClick={handleGoBack}
                 className="px-4 py-2.5 bg-white hover:bg-slate-100 text-slate-700 border border-[#E8E8E1] text-xs font-bold rounded-xl transition-all cursor-pointer shadow-2xs"
               >
-                Zrušit
+                {addRecipeTab === "ai" ? "Zavřít" : "Zrušit"}
               </button>
 
               {addRecipeTab === "manual" ? (
@@ -8509,25 +8829,22 @@ ${separator}`;
                     </>
                   )}
                 </button>
-              ) : (
+              ) : chatDraftRecipe ? (
                 <button
-                  type="submit"
-                  form="add-recipe-ai-form"
-                  disabled={isGeneratingAiModal}
+                  type="button"
+                  onClick={handleConfirmChatRecipe}
+                  disabled={isConfirmingChatRecipe || isChatLoading}
                   className="px-6 py-2.5 bg-[#1B4332] hover:bg-[#2D6A4F] disabled:bg-slate-300 active:scale-95 text-white text-xs font-bold rounded-xl shadow-sm transition-all cursor-pointer flex items-center gap-2"
                 >
-                  {isGeneratingAiModal ? (
-                    <>
-                      <Sparkles className="h-4 w-4 animate-spin text-amber-400" />
-                      <span>Generuji recept přes AI...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Sparkles className="h-4 w-4 text-amber-400" />
-                      <span>Vygenerovat a uložit recept</span>
-                    </>
-                  )}
+                  <Check className="h-4 w-4 text-emerald-300 stroke-[3]" />
+                  <span>
+                    {isConfirmingChatRecipe ? "Ukládám do databáze..." : "✓ Potvrdit a vložit do kuchařky"}
+                  </span>
                 </button>
+              ) : (
+                <span className="text-[11px] font-medium text-slate-500">
+                  Po vygenerování návrhu jej zde jedním kliknutím potvrdíte.
+                </span>
               )}
             </div>
 

@@ -77,43 +77,163 @@ export function ensureNutrition(recipes: any[]) {
 }
 
 function getAi() {
-  return process.env.GEMINI_API_KEY ? new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }) : null;
+  return process.env.GEMINI_API_KEY
+    ? new GoogleGenAI({
+        apiKey: process.env.GEMINI_API_KEY,
+        httpOptions: {
+          headers: {
+            "User-Agent": "aistudio-build",
+          },
+        },
+      })
+    : null;
+}
+
+const GEMINI_MODELS = ["gemini-4-hydrogen", "gemini-2.5-flash"];
+
+function isModelFallbackError(err: any) {
+  const status = err?.status || err?.response?.status;
+  const msg = (err?.message || "").toLowerCase();
+  const isFatalForModel =
+    status === 400 ||
+    status === 404 ||
+    msg.includes("not found") ||
+    msg.includes("not supported");
+  const isQuota =
+    status === 429 ||
+    msg.includes("429") ||
+    msg.includes("resource_exhausted") ||
+    msg.includes("quota");
+  return { isFatalForModel, isQuota };
 }
 
 async function generateContentWithRetry(ai: GoogleGenAI, config: any, retries = 2) {
-  const modelsToTry = ["gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.5-pro"];
   let lastError: any = null;
 
-  for (const modelName of modelsToTry) {
+  for (const modelName of GEMINI_MODELS) {
     const currentConfig = { ...config, model: modelName };
     for (let i = 0; i < retries; i++) {
       try {
         return await ai.models.generateContent(currentConfig);
       } catch (err: any) {
         lastError = err;
-        console.error(`[Gemini] Error with model ${modelName} (attempt ${i+1}):`, err.message);
-        
-        const status = err?.status || err?.response?.status;
-        const msg = (err?.message || "").toLowerCase();
-        
-        const isFatalForModel = status === 400 || status === 404 || msg.includes("not found") || msg.includes("not supported");
-        const isQuota = status === 429 || msg.includes("429") || msg.includes("resource_exhausted") || msg.includes("quota");
+        console.error(`[Gemini] Error with model ${modelName} (attempt ${i + 1}):`, err.message);
 
+        const { isFatalForModel, isQuota } = isModelFallbackError(err);
         if (isFatalForModel || isQuota) {
-          console.warn(`[Gemini] Model ${modelName} failed with ${isQuota ? 'quota' : 'fatal'} error, switching to next model immediately...`);
-          break; // Move to the next model in modelsToTry
+          console.warn(
+            `[Gemini] Model ${modelName} failed with ${isQuota ? "quota" : "fatal"} error, switching to next model immediately...`
+          );
+          break;
         }
 
         if (i < retries - 1) {
-          await new Promise(res => setTimeout(res, 1000 * (i + 1)));
+          await new Promise((res) => setTimeout(res, 1000 * (i + 1)));
         }
       }
     }
   }
-  
-  throw new Error("Všechny dostupné AI modely selhaly. Poslední chyba: " + (lastError?.message || "Neznámá chyba"));
+
+  throw new Error(
+    "Všechny dostupné AI modely selhaly. Poslední chyba: " +
+      (lastError?.message || "Neznámá chyba")
+  );
 }
 
+async function sendChatWithRetry(
+  ai: GoogleGenAI,
+  history: any[],
+  messageParts: any[],
+  chatConfig: any,
+  retries = 2
+) {
+  let lastError: any = null;
+
+  for (const modelName of GEMINI_MODELS) {
+    for (let i = 0; i < retries; i++) {
+      try {
+        const chat = ai.chats.create({
+          model: modelName,
+          history,
+          config: chatConfig,
+        });
+        return await chat.sendMessage({ message: messageParts });
+      } catch (err: any) {
+        lastError = err;
+        console.error(`[Gemini Chat] Error with model ${modelName} (attempt ${i + 1}):`, err.message);
+
+        const { isFatalForModel, isQuota } = isModelFallbackError(err);
+        if (isFatalForModel || isQuota) {
+          console.warn(
+            `[Gemini Chat] Model ${modelName} failed with ${isQuota ? "quota" : "fatal"} error, switching to next model immediately...`
+          );
+          break;
+        }
+
+        if (i < retries - 1) {
+          await new Promise((res) => setTimeout(res, 1000 * (i + 1)));
+        }
+      }
+    }
+  }
+
+  throw new Error(
+    "Gemini Chat selhal na všech dostupných modelech. Poslední chyba: " +
+      (lastError?.message || "Neznámá chyba")
+  );
+}
+
+function buildAttachmentParts(fileData?: string | null, fileName?: string | null, mimeType?: string | null): any[] {
+  if (!fileData) return [];
+  const base64Data = fileData.includes("base64,") ? fileData.split("base64,")[1] : fileData;
+  const detectedMime = (mimeType || "").toLowerCase();
+  const fn = (fileName || "").toLowerCase();
+
+  const isTextFile =
+    detectedMime.startsWith("text/") ||
+    detectedMime.includes("json") ||
+    detectedMime.includes("csv") ||
+    detectedMime.includes("markdown") ||
+    fn.endsWith(".txt") ||
+    fn.endsWith(".md") ||
+    fn.endsWith(".markdown") ||
+    fn.endsWith(".csv") ||
+    fn.endsWith(".json") ||
+    fn.endsWith(".log") ||
+    fn.endsWith(".rtf");
+
+  if (isTextFile) {
+    try {
+      const decodedText = Buffer.from(base64Data, "base64").toString("utf-8");
+      return [
+        {
+          text: `OBSAH PŘILOŽENÉHO TEXTOVÉHO SOUBORU (${fileName || "příloha"}):\n\n${decodedText}`,
+        },
+      ];
+    } catch (e) {
+      console.error("Chyba při dekódování textu ze souboru:", e);
+      return [];
+    }
+  }
+
+  let validMime = mimeType || "image/jpeg";
+  if (validMime === "application/octet-stream" || !validMime) {
+    if (fn.endsWith(".png")) validMime = "image/png";
+    else if (fn.endsWith(".webp")) validMime = "image/webp";
+    else if (fn.endsWith(".gif")) validMime = "image/gif";
+    else if (fn.endsWith(".pdf")) validMime = "application/pdf";
+    else validMime = "image/jpeg";
+  }
+
+  return [
+    {
+      inlineData: {
+        data: base64Data,
+        mimeType: validMime,
+      },
+    },
+  ];
+}
 
 function parseAiJson(text: string | undefined | null): any {
   const clean = (text || "").replace(/```(?:json)?/gi, "").replace(/```/g, "").trim();
@@ -134,14 +254,53 @@ function getAuthDetails(req: express.Request) {
 
 function isAuthorized(req: express.Request): boolean {
   const { adminPassword } = getAuthDetails(req);
-  if (process.env.ADMIN_PASSWORD && adminPassword === process.env.ADMIN_PASSWORD) {
+  const serverPassword = (process.env.ADMIN_PASSWORD || "").trim();
+  if (serverPassword && adminPassword === serverPassword) {
     return true;
   }
   return false;
 }
 
+const FIVE_PILLARS_INSTRUCTIONS = `PĚT PILÍŘŮ AI KUCHAŘKY (aplikuj na každý recept):
+1. Pilíř 1 – Věda (Food Science): Propočítávej přesné fyzikální teploty a chemické procesy (rozklad kolagenu, želatinizace škrobů, Maillardova reakce, hydratace těsta).
+2. Pilíř 2 – Mistrovská technika (Culinary Masterclass): Převeď ověřené profesionální postupy do srozumitelných kroků pro domácí kuchyni.
+3. Pilíř 3 – Statistiky chuti (Analýza chuťových poměrů): Vylaď poměry surovin, soli, kyselin, tuků a koření pro plnou harmonickou chuť. Zásadně bez průmyslové chemie, polotovarů a konzervantů.
+4. Pilíř 4 – Prevence nezdarů (Eliminace chyb): Předcházej častým chybám domácích kuchařů (vysušení masa, sražení omáčky, připálení, nedopečení).
+5. Pilíř 5 – Inženýrství (Moderní spotřebiče): Doporuč optimální spotřebič ('applianceType') a uveď konkrétní časy, teploty a praktické tipy ('applianceTips').
+
+ZÁVAZNÁ PRAVIDLA PRO POSTUPY PŘÍPRAVY ('instructions'):
+1. Konkrétní časy u všech klíčových procesů: V postupech přípravy ('instructions') MUSÍ být u každého procesního, fyzikálního či chemického kroku (např. klíčení, fermentace, autolýza, rozkvas, kynutí, odležení, namáčení, chlazení, odpočinek, hnětení, pečení, smažení, vaření, šlehání, redukce) VŽDY uveden konkrétní čas a trvání (např. "nechte autolyzovat po dobu 30 minut", "kynutí 60 minut při pokojové teplotě", "odležet v chladničce 4 hodiny", "pečení 45 minut při 200 °C", "hněťte po dobu 10 minut").
+2. Žádné váhové údaje v postupech: V krocích postupu ('instructions') NEOPAKUJTE gramy, mililitry ani kusy surovin (ty patří výhradně do pole 'ingredients'), ale časové údaje a trvání operací jsou povinné u každého procesního kroku.`;
+
+function normalizeRecipePayload(recipeData: any, existingId?: string) {
+  const normalized: any = { ...recipeData };
+  normalized.id = existingId || normalized.id || `recipe-ai-${Date.now()}`;
+  if (!normalized.applianceType && normalized.appliance) {
+    normalized.applianceType = normalized.appliance;
+  }
+  delete normalized.appliance;
+  if (!normalized.applianceType) normalized.applianceType = "Sporák";
+  if (!normalized.cookingTime) normalized.cookingTime = "30 min";
+  if (!normalized.estimatedCookingTime) normalized.estimatedCookingTime = normalized.cookingTime;
+  if (!normalized.category) normalized.category = "Ostatní";
+  if (!["Snadné", "Střední", "Složité"].includes(normalized.difficulty)) {
+    normalized.difficulty = "Střední";
+  }
+  if (!Array.isArray(normalized.ingredients)) normalized.ingredients = [];
+  if (!Array.isArray(normalized.instructions)) normalized.instructions = [];
+  if (!normalized.applianceTips) {
+    normalized.applianceTips = `Při přípravě v zařízení '${normalized.applianceType}' dodržujte doporučené teploty a časy.`;
+  }
+  if (!normalized.expertJustification) {
+    normalized.expertJustification = "Recept byl optimalizován podle pěti pilířů kulinářské vědy a technologie AI Kuchařky.";
+  }
+  normalized.updatedAt = new Date().toISOString();
+  ensureNutrition([normalized]);
+  return normalized;
+}
+
 app.get("/api/config", (req, res) => {
-  res.json({ readOnly: !!process.env.VERCEL });
+  res.json({ readOnly: false, authRequired: true });
 });
 
 app.get(["/api/health", "/health"], (req, res) => {
@@ -188,11 +347,26 @@ app.get(["/api", "/api/recipes", "/recipes"], async (req, res) => {
 });
 
 app.post(["/api", "/api/recipes", "/recipes"], async (req, res) => {
-  if (process.env.VERCEL) {
-    return res.status(403).json({ error: "Aplikace je v režimu pouze pro čtení." });
-  }
   try {
-    if (!isAuthorized(req)) return res.status(401).json({ error: "Přístup odepřen." });
+    if (!isAuthorized(req)) {
+      return res.status(401).json({ error: "Přístup odepřen. Vyžadováno administrátorské přihlášení." });
+    }
+
+    // Fast single-recipe upsert (ideal for mobile/tablet & Vercel)
+    if (req.body && req.body.recipe && typeof req.body.recipe === "object") {
+      const r = { ...req.body.recipe };
+      r.id = r.id || slugify(r.title || `recipe-${Date.now()}`);
+      ensureNutrition([r]);
+      await setDoc(doc(db, "recipes", r.id), r, { merge: true });
+      return res.json({ success: true, recipe: r });
+    }
+
+    // Fast single-recipe delete
+    if (req.body && req.body.deleteId) {
+      await deleteDoc(doc(db, "recipes", String(req.body.deleteId)));
+      return res.json({ success: true, deletedId: req.body.deleteId });
+    }
+
     let recipesList = req.body;
     if (!Array.isArray(recipesList)) {
       if (recipesList && Array.isArray(recipesList.recipes)) recipesList = recipesList.recipes;
@@ -216,8 +390,29 @@ app.post(["/api", "/api/recipes", "/recipes"], async (req, res) => {
   }
 });
 
+app.delete(["/api/recipes/:id", "/recipes/:id"], async (req, res) => {
+  try {
+    if (!isAuthorized(req)) {
+      return res.status(401).json({ error: "Přístup odepřen. Vyžadováno administrátorské přihlášení." });
+    }
+    const recipeId = req.params.id;
+    if (!recipeId) {
+      return res.status(400).json({ error: "Chybí ID receptu." });
+    }
+    await deleteDoc(doc(db, "recipes", recipeId));
+    return res.json({ success: true, deletedId: recipeId });
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 app.post("/api/verify-admin", async (req, res) => {
   try {
+    if (!process.env.ADMIN_PASSWORD || !process.env.ADMIN_PASSWORD.trim()) {
+      return res.status(503).json({
+        error: "Na serveru není nastavena proměnná prostředí ADMIN_PASSWORD.",
+      });
+    }
     if (isAuthorized(req)) {
       return res.json({ success: true, message: "Ověřeno úspěšně." });
     }
@@ -228,12 +423,19 @@ app.post("/api/verify-admin", async (req, res) => {
 });
 
 app.post("/api/test-diagnostics", async (req, res) => {
+  if (!isAuthorized(req)) {
+    return res.status(401).json({ error: "Přístup odepřen. Vyžadováno administrátorské přihlášení." });
+  }
+
+  const ai = getAi();
   const result = {
     timestamp: new Date().toISOString(),
     firestoreOk: false,
     firestoreMessage: "Probíhá test",
-    geminiOk: true,
-    geminiMessage: "Gemini AI (3.6 Flash) je aktivní a funkční",
+    geminiOk: Boolean(ai),
+    geminiMessage: ai
+      ? "Gemini AI (gemini-4-hydrogen) je aktivní a nakonfigurován"
+      : "Chybí GEMINI_API_KEY na serveru (zkontrolujte proměnné prostředí)",
     recipesCount: 0
   };
   
@@ -249,9 +451,122 @@ app.post("/api/test-diagnostics", async (req, res) => {
   res.json(result);
 });
 
-app.post("/api/enhance-recipe", async (req, res) => {
-  if (process.env.VERCEL) return res.status(403).json({ error: "Aplikace je v režimu pouze pro čtení." });
+app.post("/api/recipe-chat", async (req, res) => {
   try {
+    if (!isAuthorized(req)) {
+      return res.status(401).json({ error: "Přístup odepřen. Pouze přihlášený administrátor může používat Gemini AI." });
+    }
+    const ai = getAi();
+    if (!ai) {
+      return res.status(503).json({ error: "Gemini API klíč není na serveru nakonfigurován." });
+    }
+
+    const { messages, currentDraftRecipe } = req.body || {};
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ error: "Chybí zpráva pro Gemini chat." });
+    }
+
+    const draftContext = currentDraftRecipe
+      ? `\n\nAKTUÁLNÍ ROZPRACOVANÝ NÁVRH RECEPTU (pokud uživatel žádá úpravu, vycházej z tohoto návrhu a aktualizuj ho):\n${JSON.stringify(currentDraftRecipe, null, 2)}`
+      : "";
+
+    const systemInstruction = `Jsi šéfkuchař a potravinářský vědec AI Kuchařky. Komunikuješ s administrátorem v přirozeném chatu v češtině.
+Tvým úkolem je nejprve recept navrhnout a zanalyzovat na základě pěti pilířů AI Kuchařky (nikoli ho rovnou ukládat — uživatel návrh nejdříve zkontroluje, může ho v chatu upravit a poté ho sám potvrdí tlačítkem pro vložení do databáze).
+
+${FIVE_PILLARS_INSTRUCTIONS}
+
+PRAVIDLA ODPOVĚDI:
+- V poli 'reply' odpověz česky srozumitelně a odborně: shrň svůj návrh a stručně vysvětli aplikaci pěti pilířů (proč jsou takto nastavené suroviny, teploty, časy a prevence chyb). Na konci krátce zmiň, že pokud je návrh v pořádku, může ho potvrdit tlačítkem níže pro vložení do kuchařky, nebo napsat požadavek na úpravu.
+- Kdykoli uživatel požádá o vytvoření receptu (např. "vytvoř recept na bramborové placky"), pošle fotku/screenshot/text/PDF receptu, nebo žádá úpravu rozpracovaného návrhu, nastav 'hasRecipeProposal' na true a vrať kompletní recept v poli 'recipe'.
+- V 'recipe' VŽDY použij správné názvy polí: 'title', 'summary', 'category', 'cookingTime', 'estimatedCookingTime', 'difficulty' ('Snadné' | 'Střední' | 'Složité'), 'applianceType', 'applianceTips', 'expertJustification', 'ingredients', 'instructions'.
+- Pokud uživatel jen pokládá obecnou otázku bez žádosti o návrh/úpravu receptu, nastav 'hasRecipeProposal' na false a v 'reply' odpověz.${draftContext}`;
+
+    const historyMessages = messages.slice(0, -1);
+    const lastMessage = messages[messages.length - 1];
+
+    const history = historyMessages.map((m: any) => {
+      const parts: any[] = [];
+      const textVal = (m.text || "").trim();
+      const attachmentNote = m.fileName ? `[Přiložený soubor: ${m.fileName}]` : "";
+      const combinedText = [textVal, attachmentNote].filter(Boolean).join("\n");
+      if (combinedText) {
+        parts.push({ text: combinedText });
+      }
+      if (parts.length === 0) {
+        parts.push({ text: "..." });
+      }
+      return {
+        role: m.role === "model" ? "model" : "user",
+        parts,
+      };
+    });
+
+    const lastParts: any[] = [
+      ...buildAttachmentParts(lastMessage.fileData, lastMessage.fileName, lastMessage.mimeType),
+    ];
+    if (lastMessage.text && lastMessage.text.trim()) {
+      lastParts.push({ text: lastMessage.text.trim() });
+    } else if (lastParts.length > 0) {
+      lastParts.push({
+        text: "Analyzuj přiložený soubor/obrázek podle pěti pilířů AI Kuchařky a navrhni kompletní recept se všemi časy procesů.",
+      });
+    }
+
+    if (lastParts.length === 0) {
+      return res.status(400).json({ error: "Zadejte text zprávy nebo přiložte soubor." });
+    }
+
+    const response = await sendChatWithRetry(ai, history, lastParts, {
+      systemInstruction,
+      responseMimeType: "application/json",
+      responseSchema: {
+        type: Type.OBJECT,
+        required: ["reply", "hasRecipeProposal"],
+        properties: {
+          reply: { type: Type.STRING },
+          hasRecipeProposal: { type: Type.BOOLEAN },
+          recipe: {
+            type: Type.OBJECT,
+            nullable: true,
+            properties: {
+              title: { type: Type.STRING },
+              summary: { type: Type.STRING },
+              category: { type: Type.STRING },
+              cookingTime: { type: Type.STRING },
+              estimatedCookingTime: { type: Type.STRING },
+              difficulty: { type: Type.STRING },
+              applianceType: { type: Type.STRING },
+              applianceTips: { type: Type.STRING },
+              expertJustification: { type: Type.STRING },
+              ingredients: { type: Type.ARRAY, items: { type: Type.STRING } },
+              instructions: { type: Type.ARRAY, items: { type: Type.STRING } },
+            },
+          },
+        },
+      },
+    });
+
+    const parsed = parseAiJson(response.text);
+    const hasProposal = Boolean(parsed.hasRecipeProposal && parsed.recipe && parsed.recipe.title);
+    const normalizedRecipe = hasProposal
+      ? normalizeRecipePayload(parsed.recipe, currentDraftRecipe?.id)
+      : null;
+
+    return res.json({
+      reply: parsed.reply || "Připravil jsem pro vás návrh receptu podle pěti pilířů.",
+      recipe: normalizedRecipe,
+    });
+  } catch (err: any) {
+    console.error("[Recipe Chat Error]:", err);
+    return res.status(500).json({ error: err.message || "Chyba při komunikaci s Gemini chatem." });
+  }
+});
+
+app.post("/api/enhance-recipe", async (req, res) => {
+  try {
+    if (!isAuthorized(req)) {
+      return res.status(401).json({ error: "Přístup odepřen. Vyžadováno administrátorské přihlášení." });
+    }
     const ai = getAi();
     if (!ai) return res.status(503).json({ error: "Gemini API klíč není nakonfigurován." });
     
@@ -259,9 +574,7 @@ app.post("/api/enhance-recipe", async (req, res) => {
     
     const systemInstruction = `Jsi profesionální šéfkuchař a expert na digitalizaci a syntézu kulinářských receptů. Tvým úkolem je vytvořit nebo upravit recept a vrátit ho PŘESNĚ ve formátu JSON, který odpovídá struktuře aplikace.
 
-DŮLEŽITÁ PRAVIDLA PRO POSTUPY PŘÍPRAVY:
-1. Konkrétní časy u všech klíčových procesů: V postupech přípravy ('instructions') MUSÍ být u každého procesního, fyzikálního či chemického kroku (např. klíčení, fermentace, autolýza, rozkvas, kynutí, odležení, namáčení, chlazení, odpočinek, hnětení, pečení, smažení, vaření, šlehání, redukce) VŽDY uveden konkrétní čas a trvání (např. "nechte autolyzovat po dobu 30 minut", "kynutí 60 minut při pokojové teplotě", "odležet v chladničce 4 hodiny", "pečení 45 minut při 200 °C", "hněťte po dobu 10 minut").
-2. Žádné váhové údaje v postupech: V krocích postupu ('instructions') neopakujte gramy, mililitry ani kusy surovin (ty patří výhradně do pole 'ingredients'), ale časové údaje a trvání operací jsou povinné u každého procesního kroku.
+${FIVE_PILLARS_INSTRUCTIONS}
 
 STRUKTURA JSON:
 - 'title': Krátký výstižný název pokrmu v češtině.
@@ -270,55 +583,13 @@ STRUKTURA JSON:
 - 'cookingTime': Celkový čas (např. '1 hodina 15 minut').
 - 'estimatedCookingTime': Odhadovaný čas přípravy (např. '1 hodina 15 minut').
 - 'difficulty': Náročnost ('Snadné', 'Střední', 'Složité').
-- 'portions': Počet porcí jako číslo (např. 4).
-- 'appliance': Doporučené hlavní zařízení (např. 'Sporák', 'Trouba', 'Remoska', 'Pánev', 'Hrnec', 'Gril').
+- 'applianceType': Doporučené hlavní zařízení (např. 'Sporák', 'Klasická trouba', 'Remoska', 'Horkovzdušná fritéza', 'Pomalý hrnec').
 - 'applianceTips': Praktický tip pro dané kuchyňské zařízení.
-- 'expertJustification': Odborné kulinářské zdůvodnění postupu nebo chemických reakcí.
+- 'expertJustification': Odborné kulinářské zdůvodnění postupu a chemických reakcí podle pěti pilířů.
 - 'ingredients': Pole řetězců s přesným množstvím a názvem suroviny (např. ["500 g hladké mouky", "250 ml vlažné vody", "10 g soli", "1 ks cibule"]).
 - 'instructions': Pole řetězců popisujících jednotlivé kroky přípravy (s povinnými časy procesů a bez váhových údajů).`;
 
-    let contents: any[] = [];
-    
-    if (fileData) {
-      const base64Data = fileData.includes("base64,") ? fileData.split("base64,")[1] : fileData;
-      const detectedMime = (mimeType || "").toLowerCase();
-      const fn = (fileName || "").toLowerCase();
-      
-      const isTextFile = detectedMime.startsWith("text/") || 
-                         detectedMime.includes("json") || 
-                         detectedMime.includes("csv") || 
-                         detectedMime.includes("markdown") || 
-                         fn.endsWith(".txt") || fn.endsWith(".md") || fn.endsWith(".markdown") || 
-                         fn.endsWith(".csv") || fn.endsWith(".json") || fn.endsWith(".log") || 
-                         fn.endsWith(".rtf");
-
-      if (isTextFile) {
-        try {
-          const decodedText = Buffer.from(base64Data, "base64").toString("utf-8");
-          contents.push({
-            text: `OBSAH PŘILOŽENÉHO TEXTOVÉHO SOUBORU (${fileName || "příloha"}):\n\n${decodedText}`
-          });
-        } catch (e) {
-          console.error("Chyba při dekódování textu ze souboru:", e);
-        }
-      } else {
-        // Image or PDF
-        let validMime = mimeType || "image/jpeg";
-        if (validMime === "application/octet-stream" || !validMime) {
-          if (fn.endsWith(".png")) validMime = "image/png";
-          else if (fn.endsWith(".webp")) validMime = "image/webp";
-          else if (fn.endsWith(".gif")) validMime = "image/gif";
-          else if (fn.endsWith(".pdf")) validMime = "application/pdf";
-          else validMime = "image/jpeg";
-        }
-        contents.push({
-          inlineData: {
-            data: base64Data,
-            mimeType: validMime
-          }
-        });
-      }
-    }
+    const contents: any[] = [...buildAttachmentParts(fileData, fileName, mimeType)];
 
     if (rawText && rawText.trim()) {
       contents.push({ text: `ZADÁNÍ, POZNÁMKY NEBO POPIS OD UŽIVATELE:\n${rawText.trim()}` });
@@ -344,21 +615,7 @@ STRUKTURA JSON:
       },
     });
     
-    const recipeData = parseAiJson(response.text);
-    recipeData.id = recipeData.id || `gen-${Date.now()}`;
-    if (!recipeData.estimatedCookingTime) {
-      recipeData.estimatedCookingTime = recipeData.cookingTime || "30 min";
-    }
-    if (!recipeData.category) {
-      recipeData.category = "Ostatní";
-    }
-    if (!recipeData.difficulty) {
-      recipeData.difficulty = "Střední";
-    }
-    if (!recipeData.portions) {
-      recipeData.portions = 4;
-    }
-    ensureNutrition([recipeData]);
+    const recipeData = normalizeRecipePayload(parseAiJson(response.text));
 
     return res.json({ recipe: recipeData });
   } catch (err: any) {
@@ -368,8 +625,10 @@ STRUKTURA JSON:
 });
 
 app.post("/api/edit-recipe", async (req, res) => {
-  if (process.env.VERCEL) return res.status(403).json({ error: "Aplikace je v režimu pouze pro čtení." });
   try {
+    if (!isAuthorized(req)) {
+      return res.status(401).json({ error: "Přístup odepřen. Vyžadováno administrátorské přihlášení." });
+    }
     const ai = getAi();
     if (!ai) return res.status(503).json({ error: "Gemini API klíč chybí." });
     
@@ -379,8 +638,8 @@ app.post("/api/edit-recipe", async (req, res) => {
     
     if (!recipeToEdit) return res.status(400).json({ error: "Původní recept je povinný." });
 
-    const systemInstruction = `Jsi profesionální šéfkuchař. Uprav recept podle zadání uživatele a vrať ho v JSON struktuře odpovídající aplikaci.
-Pamatuj na pravidlo: U každého procesního kroku v 'instructions' VŽDY uváděj konkrétní čas a trvání. Žádné váhové údaje v postupu.`;
+    const systemInstruction = `Jsi profesionální šéfkuchař. Uprav recept podle zadání uživatele a vrať ho v JSON struktuře odpovídající aplikaci (pole: title, summary, category, cookingTime, estimatedCookingTime, difficulty, applianceType, applianceTips, expertJustification, ingredients, instructions).
+${FIVE_PILLARS_INSTRUCTIONS}`;
     const prompt = `\nPŮVODNÍ RECEPT:\n${JSON.stringify(recipeToEdit, null, 2)}\n\nZADÁNÍ ÚPRAVY:\n${promptText}`;
     
     const response = await generateContentWithRetry(ai, {
@@ -391,23 +650,25 @@ Pamatuj na pravidlo: U každého procesního kroku v 'instructions' VŽDY uvád�
       },
     });
     
-    const edited = parseAiJson(response.text);
-    edited.id = recipeToEdit.id || `gen-${Date.now()}`;
-    edited.title = recipeToEdit.title;
+    const edited = normalizeRecipePayload(parseAiJson(response.text), recipeToEdit.id);
+    edited.title = edited.title || recipeToEdit.title;
     return res.json({ recipe: edited, logs: ["Recept upraven pomocí Gemini AI"] });
-  } catch (err) {
+  } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
 });
 
 app.post("/api/audit-recipe", async (req, res) => {
-  if (process.env.VERCEL) return res.status(403).json({ error: "Aplikace je v režimu pouze pro čtení." });
   try {
+    if (!isAuthorized(req)) {
+      return res.status(401).json({ error: "Přístup odepřen. Vyžadováno administrátorské přihlášení." });
+    }
     const ai = getAi();
     if (!ai) return res.status(503).json({ error: "Gemini API klíč chybí." });
     const { recipe } = req.body;
     
-    const systemInstruction = "Jsi špičkový vědec potravinář a kulinářský technolog. Tvým úkolem je analyzovat recept, simulovat jeho přípravu krok za krokem a navrhnout konkrétní vylepšení (např. chemické reakce, lepší časy, hydratace). Vrať JSON objekt, který obsahuje 'simulationSteps' s kroky analýzy, 'proposedChange' s krátkým shrnutím hlavní změny, a 'modifiedRecipe' s kompletně upraveným receptem.";
+    const systemInstruction = `Jsi špičkový vědec potravinář a kulinářský technolog. Tvým úkolem je analyzovat recept, simulovat jeho přípravu krok za krokem podle pěti pilířů AI Kuchařky a navrhnout konkrétní vylepšení (např. chemické reakce, lepší časy, hydratace). Vrať JSON objekt, který obsahuje 'simulationSteps' s kroky analýzy, 'proposedChange' s krátkým shrnutím hlavní změny, a 'modifiedRecipe' s kompletně upraveným receptem.
+${FIVE_PILLARS_INSTRUCTIONS}`;
     const prompt = `Prozkoumej tento recept a spusť kompletní simulaci vaření. Aplikuj veškeré potřebné úpravy do pole 'modifiedRecipe'.\n${JSON.stringify(recipe, null, 2)}`;
     
     const response = await generateContentWithRetry(ai, {
@@ -449,8 +710,10 @@ app.post("/api/audit-recipe", async (req, res) => {
 });
 
 app.post("/api/calculate-nutrition", async (req, res) => {
-  if (process.env.VERCEL) return res.status(403).json({ error: "Aplikace je v režimu pouze pro čtení." });
   try {
+    if (!isAuthorized(req)) {
+      return res.status(401).json({ error: "Přístup odepřen. Vyžadováno administrátorské přihlášení." });
+    }
     const ai = getAi();
     if (!ai) return res.status(503).json({ error: "Gemini API klíč chybí." });
     const { recipe } = req.body;
