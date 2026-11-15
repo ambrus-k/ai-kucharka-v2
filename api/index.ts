@@ -1,7 +1,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, getDocs, setDoc, doc, deleteDoc, query, limit } from "firebase/firestore";
 import dotenv from "dotenv";
@@ -150,12 +150,20 @@ async function sendChatWithRetry(
   let lastError: any = null;
 
   for (const modelName of GEMINI_MODELS) {
+    const isGemini3Or4 = modelName.startsWith("gemini-4") || modelName.startsWith("gemini-3");
+    const effectiveConfig = isGemini3Or4
+      ? {
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          ...chatConfig,
+        }
+      : chatConfig;
+
     for (let i = 0; i < retries; i++) {
       try {
         const chat = ai.chats.create({
           model: modelName,
           history,
-          config: chatConfig,
+          config: effectiveConfig,
         });
         return await chat.sendMessage({ message: messageParts });
       } catch (err: any) {
@@ -294,6 +302,7 @@ function normalizeRecipePayload(recipeData: any, existingId?: string) {
   if (!normalized.expertJustification) {
     normalized.expertJustification = "Recept byl optimalizován podle pěti pilířů kulinářské vědy a technologie AI Kuchařky.";
   }
+  normalized.createdAt = normalized.createdAt || new Date().toISOString();
   normalized.updatedAt = new Date().toISOString();
   ensureNutrition([normalized]);
   return normalized;
@@ -451,6 +460,44 @@ app.post("/api/test-diagnostics", async (req, res) => {
   res.json(result);
 });
 
+function extractRecipeJsonFromChatText(rawText: string): {
+  cleanReply: string;
+  extractedRecipe: any | null;
+} {
+  let text = rawText || "";
+  let extractedRecipe: any | null = null;
+
+  const tagMatch = text.match(/<RECIPE_JSON>\s*([\s\S]*?)\s*<\/RECIPE_JSON>/i);
+  if (tagMatch) {
+    const candidate = tagMatch[1]
+      .replace(/^```(?:json)?/i, "")
+      .replace(/```$/i, "")
+      .trim();
+    try {
+      extractedRecipe = JSON.parse(candidate);
+      text = text.replace(tagMatch[0], "").trim();
+      return { cleanReply: text, extractedRecipe };
+    } catch (e) {
+      console.warn("[Recipe Chat] Failed to parse <RECIPE_JSON> block:", e);
+    }
+  }
+
+  const fenceMatch = text.match(/```json\s*([\s\S]*?)\s*```/i);
+  if (fenceMatch) {
+    try {
+      const parsed = JSON.parse(fenceMatch[1].trim());
+      if (parsed && (parsed.title || parsed.ingredients || parsed.recipe)) {
+        extractedRecipe = parsed.recipe || parsed;
+        text = text.replace(fenceMatch[0], "").trim();
+      }
+    } catch {
+      // Ignore invalid fenced block and fall back to structured extractor
+    }
+  }
+
+  return { cleanReply: text.replace(/<\/?RECIPE_JSON>/gi, "").trim(), extractedRecipe };
+}
+
 app.post("/api/recipe-chat", async (req, res) => {
   try {
     if (!isAuthorized(req)) {
@@ -470,16 +517,23 @@ app.post("/api/recipe-chat", async (req, res) => {
       ? `\n\nAKTUÁLNÍ ROZPRACOVANÝ NÁVRH RECEPTU (pokud uživatel žádá úpravu, vycházej z tohoto návrhu a aktualizuj ho):\n${JSON.stringify(currentDraftRecipe, null, 2)}`
       : "";
 
-    const systemInstruction = `Jsi šéfkuchař a potravinářský vědec AI Kuchařky. Komunikuješ s administrátorem v přirozeném chatu v češtině.
-Tvým úkolem je nejprve recept navrhnout a zanalyzovat na základě pěti pilířů AI Kuchařky (nikoli ho rovnou ukládat — uživatel návrh nejdříve zkontroluje, může ho v chatu upravit a poté ho sám potvrdí tlačítkem pro vložení do databáze).
+    const systemInstruction = `Jsi šéfkuchař, výzkumník receptů a potravinářský vědec AI Kuchařky. Komunikuješ s administrátorem jako klasický chytrý AI chat v češtině s živým přístupem k vyhledávání na internetu (Google Search).
+
+JAK POSTUPOVAT PŘI NÁVRHU RECEPTU:
+1. VYHLEDÁNÍ NA INTERNETU: Kdykoli uživatel chce vytvořit recept (např. "vytvoř recept na bramborové placky", "nejlepší guláš") nebo se ptá na postup/suroviny, VŽDY nejdříve prohledej internet pomocí nástroje Google Search a najdi několik ověřených receptů různých známých kuchařů a kvalitních gastronomických webů (českých i světových – např. Roman Paulus, Zdeněk Pohlreich, Apetit, Kuchyně Lidlu, Toprecepty, Serious Eats apod.).
+2. POROVNÁNÍ A ANALÝZA PODLE 5 PILÍŘŮ: Porovnej, v čem se nalezené recepty liší (poměry surovin, techniky, teploty, časté chyby) a z nejlepších prvků slož JEDEN nejlepší, kulinářsky i vědecky dokonalý recept podle Pěti pilířů AI Kuchařky.
+3. POUZE NÁVRH K POTVRZENÍ: Recept do databáze sám neukládáš — nejprve ho v chatu představíš uživateli ke kontrole a případným úpravám. Uživatel ho pak potvrdí tlačítkem.
 
 ${FIVE_PILLARS_INSTRUCTIONS}
 
-PRAVIDLA ODPOVĚDI:
-- V poli 'reply' odpověz česky srozumitelně a odborně: shrň svůj návrh a stručně vysvětli aplikaci pěti pilířů (proč jsou takto nastavené suroviny, teploty, časy a prevence chyb). Na konci krátce zmiň, že pokud je návrh v pořádku, může ho potvrdit tlačítkem níže pro vložení do kuchařky, nebo napsat požadavek na úpravu.
-- Kdykoli uživatel požádá o vytvoření receptu (např. "vytvoř recept na bramborové placky"), pošle fotku/screenshot/text/PDF receptu, nebo žádá úpravu rozpracovaného návrhu, nastav 'hasRecipeProposal' na true a vrať kompletní recept v poli 'recipe'.
-- V 'recipe' VŽDY použij správné názvy polí: 'title', 'summary', 'category', 'cookingTime', 'estimatedCookingTime', 'difficulty' ('Snadné' | 'Střední' | 'Složité'), 'applianceType', 'applianceTips', 'expertJustification', 'ingredients', 'instructions'.
-- Pokud uživatel jen pokládá obecnou otázku bez žádosti o návrh/úpravu receptu, nastav 'hasRecipeProposal' na false a v 'reply' odpověz.${draftContext}`;
+FORMÁT ODPOVĚDI:
+- Piš přehledně a přirozeně česky jako běžný AI chat:
+  1) Stručně napiš, jaké recepty / přístupy různých kuchařů jsi na internetu našel a porovnal.
+  2) Vysvětli, jak jsi z nich pomocí 5 pilířů sestavil ten nejlepší recept (proč zvolené poměry, technika, teploty a prevence chyb).
+  3) Přidej přehledný seznam surovin a kroků postupu s přesnými časy a zeptej se uživatele, zda chce něco upravit, nebo návrh potvrdí pro vložení do kuchařky.
+- Pokud v této zprávě navrhuješ nebo upravuješ recept, na ÚPLNÝ KONEC své odpovědi (za běžný text) připoj validní JSON zabalený PŘESNĚ v tazích <RECIPE_JSON>...</RECIPE_JSON> s těmito poli:
+  title, summary, category, cookingTime, estimatedCookingTime, difficulty ('Snadné' | 'Střední' | 'Složité'), applianceType, applianceTips, expertJustification, ingredients (pole řetězců s množstvím), instructions (pole řetězců s konkrétními časy procesů a BEZ gramů/ml/kusů).
+- Pokud uživatel jen pokládá obecnou otázku bez žádosti o návrh/úpravu receptu, tag <RECIPE_JSON> nepřipojuj.${draftContext}`;
 
     const historyMessages = messages.slice(0, -1);
     const lastMessage = messages[messages.length - 1];
@@ -508,7 +562,7 @@ PRAVIDLA ODPOVĚDI:
       lastParts.push({ text: lastMessage.text.trim() });
     } else if (lastParts.length > 0) {
       lastParts.push({
-        text: "Analyzuj přiložený soubor/obrázek podle pěti pilířů AI Kuchařky a navrhni kompletní recept se všemi časy procesů.",
+        text: "Analyzuj přiložený soubor/obrázek, ověř osvědčené kuchařské postupy na internetu a navrhni nejlepší recept podle pěti pilířů AI Kuchařky se všemi časy procesů.",
       });
     }
 
@@ -516,45 +570,89 @@ PRAVIDLA ODPOVĚDI:
       return res.status(400).json({ error: "Zadejte text zprávy nebo přiložte soubor." });
     }
 
+    // Grounded AI Chat with live Google Search
     const response = await sendChatWithRetry(ai, history, lastParts, {
       systemInstruction,
-      responseMimeType: "application/json",
-      responseSchema: {
-        type: Type.OBJECT,
-        required: ["reply", "hasRecipeProposal"],
-        properties: {
-          reply: { type: Type.STRING },
-          hasRecipeProposal: { type: Type.BOOLEAN },
-          recipe: {
-            type: Type.OBJECT,
-            nullable: true,
-            properties: {
-              title: { type: Type.STRING },
-              summary: { type: Type.STRING },
-              category: { type: Type.STRING },
-              cookingTime: { type: Type.STRING },
-              estimatedCookingTime: { type: Type.STRING },
-              difficulty: { type: Type.STRING },
-              applianceType: { type: Type.STRING },
-              applianceTips: { type: Type.STRING },
-              expertJustification: { type: Type.STRING },
-              ingredients: { type: Type.ARRAY, items: { type: Type.STRING } },
-              instructions: { type: Type.ARRAY, items: { type: Type.STRING } },
-            },
-          },
-        },
-      },
+      tools: [{ googleSearch: {} }],
     });
 
-    const parsed = parseAiJson(response.text);
-    const hasProposal = Boolean(parsed.hasRecipeProposal && parsed.recipe && parsed.recipe.title);
-    const normalizedRecipe = hasProposal
-      ? normalizeRecipePayload(parsed.recipe, currentDraftRecipe?.id)
-      : null;
+    const rawReply = response.text || "";
+    const groundingMeta = response.candidates?.[0]?.groundingMetadata;
+    const rawChunks = groundingMeta?.groundingChunks || [];
+    const sourcesMap = new Map<string, { title: string; uri: string }>();
+    for (const chunk of rawChunks) {
+      const uri = chunk?.web?.uri;
+      if (uri && !sourcesMap.has(uri)) {
+        sourcesMap.set(uri, {
+          title: chunk?.web?.title || uri,
+          uri,
+        });
+      }
+    }
+    const sources = Array.from(sourcesMap.values()).slice(0, 8);
+    const searchQueries = Array.isArray(groundingMeta?.webSearchQueries)
+      ? groundingMeta.webSearchQueries
+      : [];
+
+    let { cleanReply, extractedRecipe } = extractRecipeJsonFromChatText(rawReply);
+
+    // Fallback: if Gemini wrote a great grounded recipe in text without <RECIPE_JSON>, extract it cleanly
+    const looksLikeRecipeProposal =
+      Boolean(lastMessage.fileData) ||
+      /(suroviny|ingredience|postup|příprav|recept)/i.test(cleanReply);
+
+    if (!extractedRecipe && looksLikeRecipeProposal && cleanReply.length > 120) {
+      try {
+        const extractRes = await generateContentWithRetry(ai, {
+          contents: `Uživatel napsal: "${lastMessage.text || "(příloha)"}"\n\nOdpověď kuchařského asistenta:\n${cleanReply}${draftContext}\n\nPokud odpověď asistenta obsahuje návrh nebo úpravu konkrétního receptu, extrahuj jej do JSON podle zadaného schématu (včetně 5 pilířů, časů u všech kroků a bez váhových údajů v instructions). Pokud jde jen o obecnou konverzaci bez návrhu receptu, nastav hasRecipeProposal na false.`,
+          config: {
+            systemInstruction: `Extrahuj strukturovaný recept do JSON podle pravidel AI Kuchařky.\n${FIVE_PILLARS_INSTRUCTIONS}`,
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              required: ["hasRecipeProposal"],
+              properties: {
+                hasRecipeProposal: { type: Type.BOOLEAN },
+                recipe: {
+                  type: Type.OBJECT,
+                  nullable: true,
+                  properties: {
+                    title: { type: Type.STRING },
+                    summary: { type: Type.STRING },
+                    category: { type: Type.STRING },
+                    cookingTime: { type: Type.STRING },
+                    estimatedCookingTime: { type: Type.STRING },
+                    difficulty: { type: Type.STRING },
+                    applianceType: { type: Type.STRING },
+                    applianceTips: { type: Type.STRING },
+                    expertJustification: { type: Type.STRING },
+                    ingredients: { type: Type.ARRAY, items: { type: Type.STRING } },
+                    instructions: { type: Type.ARRAY, items: { type: Type.STRING } },
+                  },
+                },
+              },
+            },
+          },
+        });
+        const extractedObj = parseAiJson(extractRes.text);
+        if (extractedObj?.hasRecipeProposal && extractedObj?.recipe?.title) {
+          extractedRecipe = extractedObj.recipe;
+        }
+      } catch (extractErr) {
+        console.warn("[Recipe Chat] Structured fallback extraction failed:", extractErr);
+      }
+    }
+
+    const normalizedRecipe =
+      extractedRecipe && extractedRecipe.title
+        ? normalizeRecipePayload(extractedRecipe, currentDraftRecipe?.id)
+        : null;
 
     return res.json({
-      reply: parsed.reply || "Připravil jsem pro vás návrh receptu podle pěti pilířů.",
+      reply: cleanReply || "Připravil jsem pro vás návrh receptu na základě receptů z internetu a pěti pilířů.",
       recipe: normalizedRecipe,
+      sources,
+      searchQueries,
     });
   } catch (err: any) {
     console.error("[Recipe Chat Error]:", err);
@@ -652,6 +750,7 @@ ${FIVE_PILLARS_INSTRUCTIONS}`;
     
     const edited = normalizeRecipePayload(parseAiJson(response.text), recipeToEdit.id);
     edited.title = edited.title || recipeToEdit.title;
+    edited.createdAt = recipeToEdit.createdAt || edited.createdAt;
     return res.json({ recipe: edited, logs: ["Recept upraven pomocí Gemini AI"] });
   } catch (err: any) {
     res.status(500).json({ error: err.message });

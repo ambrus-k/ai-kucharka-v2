@@ -661,7 +661,8 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState("");
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
   const [collapsedAlphabet, setCollapsedAlphabet] = useState<Record<string, boolean>>({});
-  const [sidebarViewMode, setSidebarViewMode] = useState<"druh" | "abeceda">("druh");
+  const [sidebarViewMode, setSidebarViewMode] = useState<"druh" | "abeceda" | "datum">("druh");
+  const [dateSortOrder, setDateSortOrder] = useState<"desc" | "asc">("desc");
   const [mobileActiveTab, setMobileActiveTab] = useState<"list" | "home">("home");
 
   // Auto-reset mobile active tab to home view (intro screen) when no recipe is selected
@@ -806,6 +807,8 @@ export default function App() {
       previewUrl?: string;
     };
     proposedRecipe?: Recipe | null;
+    sources?: Array<{ title: string; uri: string }>;
+    searchQueries?: string[];
   };
   const [chatMessages, setChatMessages] = useState<RecipeChatMessage[]>([]);
   const [chatInput, setChatInput] = useState("");
@@ -2080,6 +2083,7 @@ export default function App() {
 
     setIsSavingRecipe(true);
 
+    const nowIso = new Date().toISOString();
     const newRecipe: Recipe = {
       id: "recipe-" + Date.now(),
       title: addTitle.trim(),
@@ -2093,7 +2097,8 @@ export default function App() {
       instructions: finalInstructions,
       applianceTips: addApplianceTips.trim() || `Při přípravě v zařízení '${addAppliance}' dbejte na dodržení správných časů a teplot.`,
       expertJustification: addExpertJustification.trim() || "Vědecká kontrola: Použití čerstvých ingrediencí a fázování přípravy zajišťuje optimální chuť i strukturu.",
-      updatedAt: new Date().toISOString()
+      createdAt: nowIso,
+      updatedAt: nowIso
     };
 
     try {
@@ -2223,6 +2228,8 @@ export default function App() {
         role: "model",
         text: data.reply || "Připravil jsem návrh receptu podle pěti pilířů.",
         proposedRecipe: proposed,
+        sources: Array.isArray(data.sources) ? data.sources : [],
+        searchQueries: Array.isArray(data.searchQueries) ? data.searchQueries : [],
       };
       setChatMessages((prev) => [...prev, modelMsg]);
     } catch (err: any) {
@@ -2243,10 +2250,12 @@ export default function App() {
     setIsConfirmingChatRecipe(true);
     setAddFormError(null);
     try {
+      const nowIso = new Date().toISOString();
       const finalRecipe: Recipe = {
         ...chatDraftRecipe,
         id: chatDraftRecipe.id || "recipe-ai-" + Date.now(),
-        updatedAt: new Date().toISOString(),
+        createdAt: chatDraftRecipe.createdAt || nowIso,
+        updatedAt: nowIso,
       };
 
       const updatedRecipes = [
@@ -4156,6 +4165,32 @@ ${separator}`;
     e.target.value = "";
   };
 
+  const getRecipeInsertedTimestamp = (recipe: Recipe): number => {
+    if (recipe.createdAt) {
+      const parsed = Date.parse(recipe.createdAt);
+      if (!Number.isNaN(parsed)) return parsed;
+    }
+    if (recipe.updatedAt) {
+      const parsed = Date.parse(recipe.updatedAt);
+      if (!Number.isNaN(parsed)) return parsed;
+    }
+    const idMatch = (recipe.id || "").match(/(\d{13})$/);
+    if (idMatch) {
+      const ts = Number(idMatch[1]);
+      if (!Number.isNaN(ts)) return ts;
+    }
+    return 0;
+  };
+
+  const formatRecipeShortDate = (ms: number): string => {
+    if (!ms) return "Neznámé datum";
+    return new Date(ms).toLocaleDateString("cs-CZ", {
+      day: "numeric",
+      month: "numeric",
+      year: "numeric",
+    });
+  };
+
   // Filter and search computation (vyhledávání bez diakritiky, části slov i více slov napříč receptem)
   const filteredRecipes = useMemo(() => {
     const rawTrimmed = searchQuery.trim();
@@ -4303,7 +4338,8 @@ ${separator}`;
               id="btn-refresh-app-and-db"
               onClick={handleRefreshAppAndDatabase}
               disabled={isRefreshingApp}
-              className={`p-2 sm:px-3 rounded-xl shadow-xs transition-all flex items-center justify-center gap-1.5 text-xs sm:text-sm font-bold cursor-pointer active:scale-95 group shrink-0 ${
+              aria-label="Aktualizovat"
+              className={`p-2 rounded-xl shadow-xs transition-all flex items-center justify-center cursor-pointer active:scale-95 group shrink-0 ${
                 isRefreshingApp
                   ? "bg-emerald-100 text-emerald-800 border border-emerald-300 animate-pulse cursor-wait"
                   : "bg-[#F5F5F0] hover:bg-[#E8E8E1] text-[#1B4332] border border-[#E8E8E1] hover:border-[#1B4332]/30"
@@ -4317,9 +4353,6 @@ ${separator}`;
                     : "group-hover:rotate-180 transition-transform duration-500 text-[#1B4332]"
                 }`}
               />
-              <span className="hidden sm:inline">
-                {isRefreshingApp ? "Aktualizuji..." : "Aktualizovat"}
-              </span>
             </button>
 
             {/* BACK ARROW BUTTON */}
@@ -4453,16 +4486,30 @@ ${separator}`;
                 </>
               ) : (
                 <>
-                  {/* UPRAVIT RECEPT (For Admin) */}
+                  {/* UPRAVIT A SMAZAT RECEPT (For Admin) */}
                   {!isReadOnly && isAdmin && (
-                    <button
-                      onClick={navigateToEditRecipe}
-                      className="bg-white border border-[#1B4332] text-[#1B4332] hover:bg-emerald-50 font-bold py-2 px-3 rounded-xl shadow-xs transition-all flex items-center gap-1.5 text-xs sm:text-sm cursor-pointer"
-                      title="Upravit a doladit kulinářské parametry receptu"
-                    >
-                      <Sparkles className="h-4 w-4" />
-                      <span>Upravit recept</span>
-                    </button>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => navigateToEditRecipe()}
+                        className="bg-white border border-[#1B4332] text-[#1B4332] hover:bg-emerald-50 font-bold py-2 px-2.5 sm:px-3 rounded-xl shadow-xs transition-all flex items-center gap-1.5 text-xs sm:text-sm cursor-pointer"
+                        title="Upravit a doladit kulinářské parametry receptu"
+                      >
+                        <Sparkles className="h-4 w-4 shrink-0" />
+                        <span>Upravit recept</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => selectedRecipe && setRecipeToDelete(selectedRecipe.id)}
+                        className="bg-white border border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 font-bold py-2 px-2.5 sm:px-3 rounded-xl shadow-xs transition-all flex items-center gap-1.5 text-xs sm:text-sm cursor-pointer"
+                        title="Smazat tento recept"
+                        aria-label="Smazat recept"
+                      >
+                        <Trash2 className="h-4 w-4 shrink-0" />
+                        <span className="hidden sm:inline">Smazat</span>
+                      </button>
+                    </div>
                   )}
                 </>
               )}
@@ -4610,12 +4657,12 @@ ${separator}`;
               </div>
             </div>
 
-            {/* SIDEBAR TABS: CATEGORIES VS ALPHABETICAL */}
-            <div className="grid grid-cols-2 gap-1 p-1 bg-[#F5F5F0] rounded-xl border border-[#E8E8E1] mt-1">
+            {/* SIDEBAR TABS: CATEGORIES VS ALPHABETICAL VS DATE */}
+            <div className="grid grid-cols-3 gap-1 p-1 bg-[#F5F5F0] rounded-xl border border-[#E8E8E1] mt-1">
               <button
                 type="button"
                 onClick={() => setSidebarViewMode("druh")}
-                className={`text-xs py-1.5 px-2 rounded-lg font-bold transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 ${
+                className={`text-[11px] py-1.5 px-1.5 rounded-lg font-bold transition-all cursor-pointer text-center flex items-center justify-center ${
                   sidebarViewMode === "druh"
                     ? "bg-[#1B4332] text-white shadow-xs"
                     : "text-[#5C5C50] hover:text-[#1B4332] hover:bg-white/40"
@@ -4626,7 +4673,7 @@ ${separator}`;
               <button
                 type="button"
                 onClick={() => setSidebarViewMode("abeceda")}
-                className={`text-xs py-1.5 px-2 rounded-lg font-bold transition-all cursor-pointer text-center flex items-center justify-center gap-1.5 ${
+                className={`text-[11px] py-1.5 px-1.5 rounded-lg font-bold transition-all cursor-pointer text-center flex items-center justify-center ${
                   sidebarViewMode === "abeceda"
                     ? "bg-[#1B4332] text-white shadow-xs"
                     : "text-[#5C5C50] hover:text-[#1B4332] hover:bg-white/40"
@@ -4634,7 +4681,47 @@ ${separator}`;
               >
                 <span>Podle abecedy</span>
               </button>
+              <button
+                type="button"
+                onClick={() => setSidebarViewMode("datum")}
+                className={`text-[11px] py-1.5 px-1.5 rounded-lg font-bold transition-all cursor-pointer text-center flex items-center justify-center ${
+                  sidebarViewMode === "datum"
+                    ? "bg-[#1B4332] text-white shadow-xs"
+                    : "text-[#5C5C50] hover:text-[#1B4332] hover:bg-white/40"
+                }`}
+              >
+                <span>Podle data</span>
+              </button>
             </div>
+
+            {sidebarViewMode === "datum" && (
+              <div className="grid grid-cols-2 gap-1 p-1 bg-white rounded-xl border border-[#E8E8E1]">
+                <button
+                  type="button"
+                  onClick={() => setDateSortOrder("desc")}
+                  className={`text-[11px] py-1 px-2 rounded-lg font-bold transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                    dateSortOrder === "desc"
+                      ? "bg-[#D97706] text-white shadow-2xs"
+                      : "text-[#5C5C50] hover:text-[#1B4332] hover:bg-[#F5F5F0]"
+                  }`}
+                >
+                  <ChevronDown className="h-3.5 w-3.5" />
+                  <span>Nejnovější (sestupně)</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDateSortOrder("asc")}
+                  className={`text-[11px] py-1 px-2 rounded-lg font-bold transition-all cursor-pointer flex items-center justify-center gap-1 ${
+                    dateSortOrder === "asc"
+                      ? "bg-[#D97706] text-white shadow-2xs"
+                      : "text-[#5C5C50] hover:text-[#1B4332] hover:bg-[#F5F5F0]"
+                  }`}
+                >
+                  <ChevronUp className="h-3.5 w-3.5" />
+                  <span>Nejstarší (vzestupně)</span>
+                </button>
+              </div>
+            )}
           </div>
 
           {/* HISTORICAL & DEFAULT RECIPES LIST WITH ALPHABETICAL ACCORDIONS */}
@@ -4760,10 +4847,10 @@ ${separator}`;
                                         e.stopPropagation();
                                         handleDeleteRecipe(recipe.id, e);
                                       }}
-                                      className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all cursor-pointer"
+                                      className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-all cursor-pointer"
                                       title="Smazat recept"
                                     >
-                                      <Trash2 className="h-3 w-3" />
+                                      <Trash2 className="h-3.5 w-3.5" />
                                     </button>)}
                                   </div>
                                 );
@@ -4775,7 +4862,7 @@ ${separator}`;
                     })}
                   </div>
                 );
-              } else {
+              } else if (sidebarViewMode === "abeceda") {
                 // Alphabetical Mode
                 const grouped: Record<string, Recipe[]> = {};
                 filteredRecipes.forEach(recipe => {
@@ -4868,15 +4955,83 @@ ${separator}`;
                                         e.stopPropagation();
                                         handleDeleteRecipe(recipe.id, e);
                                       }}
-                                      className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-all cursor-pointer"
+                                      className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-all cursor-pointer"
                                       title="Smazat recept"
                                     >
-                                      <Trash2 className="h-3 w-3" />
+                                      <Trash2 className="h-3.5 w-3.5" />
                                     </button>)}
                                   </div>
                                 );
                               })}
                             </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              } else {
+                // Date Inserted Mode (ascending or descending)
+                const isSearching = Boolean(searchQuery.trim());
+                const sortedByDate = [...filteredRecipes].sort((a, b) => {
+                  if (isSearching) {
+                    const normQ = normalizeSearchText(searchQuery);
+                    const tokens = normQ.split(" ").filter(Boolean);
+                    const scoreA = getRecipeSearchScore(a, tokens, normQ);
+                    const scoreB = getRecipeSearchScore(b, tokens, normQ);
+                    if (scoreA !== scoreB) {
+                      return scoreB - scoreA;
+                    }
+                  }
+                  const timeA = getRecipeInsertedTimestamp(a);
+                  const timeB = getRecipeInsertedTimestamp(b);
+                  if (timeA !== timeB) {
+                    return dateSortOrder === "desc" ? timeB - timeA : timeA - timeB;
+                  }
+                  return a.title.localeCompare(b.title, "cs");
+                });
+
+                return (
+                  <div className="space-y-1.5">
+                    {sortedByDate.map((recipe) => {
+                      const isSelected = selectedRecipe?.id === recipe.id;
+                      const ts = getRecipeInsertedTimestamp(recipe);
+                      return (
+                        <div
+                          key={recipe.id}
+                          onClick={() => {
+                            navigateToRecipe(recipe);
+                            window.scrollTo({ top: document.getElementById('main-area')?.offsetTop || 0, behavior: 'smooth' });
+                          }}
+                          className={`group relative py-2 px-2.5 rounded-lg border transition-all duration-200 cursor-pointer ${
+                            isSelected
+                              ? "bg-[#F0F4F1] border-[#2D6A4F] shadow-sm"
+                              : "bg-white border-[#E8E8E1] hover:bg-[#FDFCF7]"
+                          }`}
+                        >
+                          <div className="flex flex-col justify-center min-h-[1.75rem] pr-6">
+                            <h3 className={`font-semibold text-sm line-clamp-2 transition-colors leading-snug ${
+                              isSelected ? "text-[#1B4332]" : "text-slate-900 group-hover:text-[#1B4332]"
+                            }`}>
+                              {recipe.title}
+                            </h3>
+                            <span className="text-[10px] text-[#7A7A70] font-medium mt-0.5">
+                              {formatRecipeShortDate(ts)} • {getRecipeCategory(recipe)}
+                            </span>
+                          </div>
+
+                          {!isReadOnly && isAdmin && (
+                            <button
+                              id={`btn-delete-recipe-date-${recipe.id}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteRecipe(recipe.id, e);
+                              }}
+                              className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded opacity-100 lg:opacity-0 lg:group-hover:opacity-100 transition-all cursor-pointer"
+                              title="Smazat recept"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
                           )}
                         </div>
                       );
@@ -8501,7 +8656,7 @@ ${separator}`;
                         <span>Gemini Chat • Analýza podle 5 pilířů</span>
                       </div>
                       <p className="leading-relaxed text-slate-700 text-[11px] sm:text-xs">
-                        Napište požadavek (např. <em>„vytvoř recept na bramborové placky“</em>), vyfoťte recept tabletem/mobilem nebo nahrajte text/PDF. Gemini recept nejprve navrhne a do databáze ho vloží až po vašem potvrzení.
+                        Napište požadavek (např. <em>„vytvoř recept na bramborové placky“</em>), zeptejte se v chatu, vyfoťte recept nebo nahrajte soubor. Gemini prohledá internet, porovná recepty různých kuchařů podle 5 pilířů a složí jeden nejlepší návrh k vašemu potvrzení.
                       </p>
                     </div>
                     {chatMessages.length > 0 && (
@@ -8589,6 +8744,30 @@ ${separator}`;
                               </div>
                             )}
                             <p className="whitespace-pre-wrap leading-relaxed">{msg.text}</p>
+
+                            {msg.role === "model" && msg.sources && msg.sources.length > 0 && (
+                              <div className="pt-2 mt-1 border-t border-[#E8E8E1] space-y-1.5">
+                                <div className="flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider text-[#2D6A4F]">
+                                  <Globe className="h-3 w-3 shrink-0" />
+                                  <span>Nalezené recepty a zdroje na internetu ({msg.sources.length})</span>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                  {msg.sources.map((src, sIdx) => (
+                                    <a
+                                      key={`${src.uri}-${sIdx}`}
+                                      href={src.uri}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 px-2 py-1 bg-white hover:bg-emerald-50 border border-[#E8E8E1] hover:border-[#2D6A4F]/40 rounded-lg text-[10px] font-semibold text-[#1B4332] transition-colors max-w-[220px]"
+                                      title={src.title}
+                                    >
+                                      <span className="truncate">{src.title}</span>
+                                      <ExternalLink className="h-2.5 w-2.5 shrink-0 text-[#D97706]" />
+                                    </a>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
                       ))
@@ -8598,7 +8777,7 @@ ${separator}`;
                       <div className="flex justify-start">
                         <div className="bg-[#F5F5F0] border border-[#E8E8E1] rounded-2xl rounded-bl-sm px-4 py-2.5 text-xs text-[#1B4332] font-semibold flex items-center gap-2">
                           <Sparkles className="h-4 w-4 text-[#D97706] animate-spin shrink-0" />
-                          <span>Gemini analyzuje zadání podle 5 pilířů...</span>
+                          <span>Gemini prohledává recepty na internetu a analyzuje je podle 5 pilířů...</span>
                         </div>
                       </div>
                     )}

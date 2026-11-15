@@ -23,6 +23,7 @@ export interface Recipe {
   difficulty: "Snadné" | "Střední" | "Složité";
   category?: string;
   isDefault?: boolean;
+  createdAt?: string; // ISO timestamp when recipe was first inserted
   updatedAt?: string; // ISO timestamp to track modifications and resolve merge conflicts
   nutritionPer100g?: Nutrition;
 }
